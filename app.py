@@ -1184,24 +1184,126 @@ setInterval(updateClock, 1000);
 
 
 
+
+# ─────────────────────────────────────────────
+# MARKET STATUS HELPERS
+# ─────────────────────────────────────────────
+
+# NSE holidays 2025-2026 (add more as declared)
+NSE_HOLIDAYS = {
+    datetime(2025,  1, 26).date(),  # Republic Day
+    datetime(2025,  2, 19).date(),  # Chhatrapati Shivaji Maharaj Jayanti
+    datetime(2025,  3, 14).date(),  # Holi
+    datetime(2025,  4,  1).date(),  # Dr. Babasaheb Ambedkar Jayanti observed
+    datetime(2025,  4, 10).date(),  # Mahavir Jayanti
+    datetime(2025,  4, 14).date(),  # Dr. Babasaheb Ambedkar Jayanti
+    datetime(2025,  4, 18).date(),  # Good Friday
+    datetime(2025,  5,  1).date(),  # Maharashtra Day
+    datetime(2025,  8, 15).date(),  # Independence Day
+    datetime(2025,  8, 27).date(),  # Ganesh Chaturthi
+    datetime(2025, 10,  2).date(),  # Gandhi Jayanti
+    datetime(2025, 10,  2).date(),  # Dussehra
+    datetime(2025, 10, 21).date(),  # Diwali Laxmi Pujan
+    datetime(2025, 10, 22).date(),  # Diwali Balipratipada
+    datetime(2025, 11,  5).date(),  # Prakash Gurpurb Sri Guru Nanak Dev Ji
+    datetime(2025, 12, 25).date(),  # Christmas
+    datetime(2026,  1, 26).date(),  # Republic Day
+    datetime(2026,  3,  3).date(),  # Mahashivratri (tentative)
+    datetime(2026,  3, 20).date(),  # Holi (tentative)
+    datetime(2026,  4,  3).date(),  # Good Friday (tentative)
+    datetime(2026,  4, 14).date(),  # Dr. Babasaheb Ambedkar Jayanti
+    datetime(2026,  5,  1).date(),  # Maharashtra Day
+    datetime(2026,  8, 15).date(),  # Independence Day
+    datetime(2026, 10,  2).date(),  # Gandhi Jayanti
+    datetime(2026, 12, 25).date(),  # Christmas
+}
+
+def is_trading_day(dt: datetime) -> bool:
+    """Return True if the given datetime falls on a NSE trading day."""
+    d = dt.date() if isinstance(dt, datetime) else dt
+    return d.weekday() < 5 and d not in NSE_HOLIDAYS   # Mon=0 … Fri=4
+
+
+def get_last_trading_day(ref: datetime = None) -> datetime:
+    """Return the most recent completed NSE trading day (never today if market open)."""
+    dt = (ref or datetime.now()).replace(hour=0, minute=0, second=0, microsecond=0)
+    dt -= timedelta(days=1)        # start from yesterday
+    for _ in range(14):            # walk back at most 2 weeks
+        if is_trading_day(dt):
+            return dt
+        dt -= timedelta(days=1)
+    return dt
+
+
+def get_market_status() -> dict:
+    """
+    Determine whether NSE is currently open.
+    Returns a dict with keys:
+        is_open   bool
+        label     str   e.g. "LIVE" or "CLOSED"
+        note      str   human-readable context
+        last_close datetime  — last completed trading day
+    """
+    now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    today   = now_ist.date()
+    open_t  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
+    close_t = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+
+    last_close = get_last_trading_day(now_ist)
+
+    if is_trading_day(now_ist) and open_t <= now_ist <= close_t:
+        return {
+            "is_open":    True,
+            "label":      "🟢 LIVE",
+            "note":       f"NSE open · {now_ist.strftime('%d %b %Y %H:%M IST')}",
+            "last_close": last_close,
+        }
+    else:
+        if not is_trading_day(now_ist):
+            reason = "Weekend" if now_ist.weekday() >= 5 else "Market Holiday"
+        elif now_ist < open_t:
+            reason = "Pre-market"
+        else:
+            reason = "After-market hours"
+        return {
+            "is_open":    False,
+            "label":      "🔴 CLOSED",
+            "note":       f"{reason} · Showing last close: {last_close.strftime('%A, %d %b %Y')}",
+            "last_close": last_close,
+        }
+
 # ─────────────────────────────────────────────
 # MA CROSSOVER SCANNER — FUNCTIONS
 # ─────────────────────────────────────────────
 
 @st.cache_data(ttl=300)
 def fetch_stock_history(symbol: str, days: int = 120) -> pd.DataFrame:
-    """Fetch daily OHLCV for a single NSE equity stock (cash segment)."""
+    """
+    Fetch daily OHLCV for a single NSE equity stock (cash segment).
+
+    Market-aware behaviour
+    ───────────────────────
+    • Market OPEN  → fetches up to today; the latest row is today's intraday candle.
+    • Market CLOSED → fetches up to last_trading_day; if the API returns data only
+      up to an earlier date (common on weekends / holidays), the last available
+      close is duplicated as a synthetic row dated to last_trading_day so callers
+      always see the freshest available close at the top of the frame.
+    """
+    status  = get_market_status()
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
         "Referer": "https://www.nseindia.com/",
     }
+
+    # When closed, fetch up to last_trading_day; when open, fetch up to today.
+    to_dt   = datetime.now() if status["is_open"] else status["last_close"]
+    from_dt = to_dt - timedelta(days=days + 40)   # extra buffer for holidays
+    fmt     = "%d-%m-%Y"
+
     try:
         session = requests.Session()
         session.get("https://www.nseindia.com", headers=headers, timeout=8)
-        to_dt   = datetime.now()
-        from_dt = to_dt - timedelta(days=days + 40)   # buffer for holidays
-        fmt     = "%d-%m-%Y"
         url = (
             f"https://www.nseindia.com/api/historical/cm/equity"
             f"?symbol={requests.utils.quote(symbol)}"
@@ -1213,22 +1315,45 @@ def fetch_stock_history(symbol: str, days: int = 120) -> pd.DataFrame:
         data = r.json().get("data", [])
         if not data:
             raise ValueError("empty")
+
         df = pd.DataFrame(data)
         df.rename(columns={
-            "CH_TIMESTAMP":       "Date",
-            "CH_OPENING_PRICE":   "Open",
-            "CH_TRADE_HIGH_PRICE":"High",
-            "CH_TRADE_LOW_PRICE": "Low",
-            "CH_CLOSING_PRICE":   "Close",
-            "CH_TOT_TRADED_QTY":  "Volume",
+            "CH_TIMESTAMP":        "Date",
+            "CH_OPENING_PRICE":    "Open",
+            "CH_TRADE_HIGH_PRICE": "High",
+            "CH_TRADE_LOW_PRICE":  "Low",
+            "CH_CLOSING_PRICE":    "Close",
+            "CH_TOT_TRADED_QTY":   "Volume",
         }, inplace=True)
-        df["Date"]   = pd.to_datetime(df["Date"])
-        for c in ["Open","High","Low","Close","Volume"]:
+        df["Date"] = pd.to_datetime(df["Date"])
+        for c in ["Open", "High", "Low", "Close", "Volume"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
         df.dropna(subset=["Close"], inplace=True)
         df.sort_values("Date", inplace=True)
         df.reset_index(drop=True, inplace=True)
-        return df[["Date","Open","High","Low","Close","Volume"]].tail(days)
+        df = df[["Date", "Open", "High", "Low", "Close", "Volume"]].tail(days)
+
+        # ── When market is closed, ensure the last row is the last trading day ──
+        # The NSE historical API sometimes lags by a day on weekends/holidays.
+        # If the latest row in the frame predates last_trading_day, clone it
+        # forward so downstream MA calculations use the correct anchor date.
+        if not status["is_open"] and not df.empty:
+            target_date = pd.Timestamp(status["last_close"])
+            last_row_date = df["Date"].iloc[-1]
+            if last_row_date < target_date:
+                fwd_row = df.iloc[[-1]].copy()
+                fwd_row["Date"] = target_date
+                df = pd.concat([df, fwd_row], ignore_index=True)
+                # Tag this row so the UI can mark it as "last close (estimated)"
+                df["_estimated"] = False
+                df.loc[df.index[-1], "_estimated"] = True
+            else:
+                df["_estimated"] = False
+        else:
+            df["_estimated"] = False
+
+        return df
+
     except Exception:
         return pd.DataFrame()
 
@@ -2011,10 +2136,30 @@ with tab5:
 # TAB 6: MA CROSSOVER SCANNER
 # ─────────────────────────────────────────────
 with tab6:
-    st.markdown("""
-    <div style='padding:6px 0 14px'>
-        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase'>
-        Cash equity · EMA 20 · EMA 50 · SMA 50 · SMA 100 · Fresh crossovers only · Not F&O
+    # ── Market status — computed once at tab render ────────────────────────
+    mkt = get_market_status()
+    status_color  = "#00ff88" if mkt["is_open"] else "#ff4466"
+    status_bg     = "rgba(0,255,136,0.07)" if mkt["is_open"] else "rgba(255,68,102,0.07)"
+    status_border = "rgba(0,255,136,0.25)" if mkt["is_open"] else "rgba(255,68,102,0.25)"
+    data_as_of    = (
+        f"Intraday live data · {datetime.now().strftime('%d %b %Y %H:%M IST')}"
+        if mkt["is_open"]
+        else f"Last close: {mkt['last_close'].strftime('%A, %d %b %Y')} · Next session opens Mon–Fri 09:15 IST"
+    )
+
+    st.markdown(f"""
+    <div style='background:{status_bg};border:1px solid {status_border};
+                border-radius:10px;padding:10px 18px;margin-bottom:14px;
+                display:flex;align-items:center;gap:18px;flex-wrap:wrap'>
+        <span style='font-size:15px;font-weight:700;color:{status_color};
+                     font-family:JetBrains Mono'>{mkt["label"]}</span>
+        <span style='font-size:11px;color:#e2e8f0;font-family:JetBrains Mono'>{mkt["note"]}</span>
+        <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono;margin-left:auto'>{data_as_of}</span>
+    </div>
+    <div style='padding:2px 0 12px'>
+        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;
+                     letter-spacing:2px;text-transform:uppercase'>
+        Cash equity · EMA 20 · EMA 50 · SMA 50 · SMA 100 · Fresh crossovers only · Not F&amp;O
         </span>
     </div>""", unsafe_allow_html=True)
 
@@ -2045,12 +2190,26 @@ with tab6:
 
     # ── Scan button ───────────────────────────────────────────────────────
     run_scan = st.button("🔍 Run Crossover Scan", use_container_width=True, key="run_scan_btn")
+
+    # Bust cache if market status changed since last scan
+    # (e.g. market opened after user loaded the page while closed)
+    prev_mkt_open = st.session_state.get("crossover_mkt_was_open")
+    if prev_mkt_open is not None and prev_mkt_open != mkt["is_open"]:
+        st.session_state["crossover_results"] = None
+        st.session_state["crossover_sector_scanned"] = None
+        fetch_stock_history.clear()
+    st.session_state["crossover_mkt_was_open"] = mkt["is_open"]
+
     if "crossover_results" not in st.session_state or run_scan:
         st.session_state["crossover_results"] = None
         st.session_state["crossover_sector_scanned"] = None
 
     if run_scan or st.session_state.get("crossover_sector_scanned") != scan_sector:
-        with st.spinner(f"Scanning {scan_sector} stocks for MA crossovers..."):
+        spinner_msg = (
+            f"Scanning {scan_sector} — live intraday data..." if mkt["is_open"]
+            else f"Scanning {scan_sector} — last close {mkt['last_close'].strftime('%d %b %Y')}..."
+        )
+        with st.spinner(spinner_msg):
             scan_sector_crossovers.clear()
             results = scan_sector_crossovers(scan_sector)
             st.session_state["crossover_results"] = results
@@ -2106,7 +2265,7 @@ with tab6:
         </div>
         <div style='margin-left:auto;font-family:JetBrains Mono;font-size:10px;color:#64748b;text-align:right'>
             Sector: {SECTOR_ICONS.get(scan_sector,"")} {scan_sector}<br>
-            {datetime.now().strftime("%d %b %Y %H:%M IST")}
+            {mkt["label"]} · {mkt["last_close"].strftime("%d %b %Y") if not mkt["is_open"] else datetime.now().strftime("%d %b %Y %H:%M IST")}
         </div>
     </div>
     """, unsafe_allow_html=True)
