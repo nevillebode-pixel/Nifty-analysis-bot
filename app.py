@@ -110,7 +110,6 @@ INDEX_SYMBOLS = {
 # ─────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def fetch_nse_quote(symbol: str) -> dict:
-    """Fetch live quote from NSE India."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
@@ -129,7 +128,6 @@ def fetch_nse_quote(symbol: str) -> dict:
 
 @st.cache_data(ttl=60)
 def fetch_index_data(symbol: str) -> dict:
-    """Fetch index spot data from NSE."""
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Referer": "https://www.nseindia.com/",
@@ -150,7 +148,6 @@ def fetch_index_data(symbol: str) -> dict:
 
 @st.cache_data(ttl=120)
 def fetch_option_chain(symbol: str) -> dict:
-    """Fetch option chain data from NSE."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Accept": "*/*",
@@ -169,10 +166,6 @@ def fetch_option_chain(symbol: str) -> dict:
 
 @st.cache_data(ttl=300)
 def fetch_historical_data(symbol: str, days: int = 60) -> pd.DataFrame:
-    """
-    Fetch historical OHLCV data for Nifty indices from NSE.
-    Falls back to synthetic data if fetch fails (for demo / network limits).
-    """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Referer": "https://www.nseindia.com/",
@@ -211,14 +204,12 @@ def fetch_historical_data(symbol: str, days: int = 60) -> pd.DataFrame:
         df["Date"] = pd.to_datetime(df["Date"])
         df.sort_values("Date", inplace=True)
         df.reset_index(drop=True, inplace=True)
-        # Volume column (NSE index data has no real volume — use synthetic)
         df["Volume"] = np.random.randint(50_000_000, 200_000_000, len(df)).astype(float)
         for col in ["Open", "High", "Low", "Close"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df.dropna(subset=["Open", "High", "Low", "Close"], inplace=True)
         return df[["Date", "Open", "High", "Low", "Close", "Volume"]]
     except Exception as e:
-        # ── Synthetic fallback ──────────────────────────────
         base_prices = {"NIFTY": 22_500, "BANKNIFTY": 48_500, "SENSEX": 74_000}
         base = base_prices.get(symbol, 22_500)
         dates = pd.bdate_range(end=datetime.today(), periods=days)
@@ -461,128 +452,47 @@ def generate_analysis(df: pd.DataFrame, cpr: dict, pcr: float, oi_signal: str, s
     return {"score": score, "bias": bias, "summary": summary, "signals": signals, "tags": tags}
 
 # ─────────────────────────────────────────────
-# PLOTLY CHART WITH TYPE SELECTION
-# ─────────────────────────────────────────────
-def build_chart(df: pd.DataFrame, cpr: dict, symbol: str, chart_type: str, box_size: float = 1.0, reversal_boxes: int = 3) -> go.Figure:
-    fig = make_subplots(
-        rows=3, cols=1,
-        shared_xaxes=True,
-        row_heights=[0.55, 0.25, 0.20],
-        vertical_spacing=0.04,
-        subplot_titles=("Price / Indicators", "ADX / DMI", "Volume"),
-    )
-
-    # ── Main Chart Type ────────────────────────────────────────────────
-    if chart_type == "Candlestick":
-        fig.add_trace(go.Candlestick(
-            x=df["Date"], open=df["Open"], high=df["High"],
-            low=df["Low"], close=df["Close"],
-            name="Candlestick",
-            increasing_line_color="#00ff88",
-            decreasing_line_color="#ff4466",
-            increasing_fillcolor="#00ff88",
-            decreasing_fillcolor="#ff4466"
-        ), row=1, col=1)
-
-    elif chart_type == "Kagi":
-        # Simple Kagi line with reversal detection
-        kagi = df["Close"].copy()
-        direction = np.sign(kagi.diff())
-        reversal_points = np.where(direction != direction.shift())[0]
-        for i in range(len(reversal_points)-1):
-            start = reversal_points[i]
-            end = reversal_points[i+1]
-            segment = kagi.iloc[start:end]
-            fig.add_trace(go.Scatter(
-                x=segment.index,
-                y=segment,
-                mode='lines',
-                line=dict(
-                    color="#00d4ff" if segment.iloc[-1] > segment.iloc[0] else "#ff4466",
-                    width=4 if abs(segment.iloc[-1] - segment.iloc[0]) > box_size * reversal_boxes else 1
-                ),
-                name="Kagi Segment",
-                showlegend=False
-            ), row=1, col=1)
-
-    elif chart_type == "Point & Figure":
-        # Basic P&F column-based rendering
-        pnf_boxes = []
-        current_col = []
-        current_dir = 1  # 1 = up (X), -1 = down (O)
-        last_price = df["Close"].iloc[0]
-
-        for price in df["Close"]:
-            if price >= last_price + box_size * reversal_boxes:
-                if current_dir == -1:
-                    pnf_boxes.append(current_col)
-                    current_col = []
-                    current_dir = 1
-                current_col.extend(["X"] * int((price - last_price) // box_size))
-                last_price = price
-            elif price <= last_price - box_size * reversal_boxes:
-                if current_dir == 1:
-                    pnf_boxes.append(current_col)
-                    current_col = []
-                    current_dir = -1
-                current_col.extend(["O"] * int((last_price - price) // box_size))
-                last_price = price
-
-        pnf_boxes.append(current_col)
-
-        x_pos = []
-        y_pos = []
-        colors = []
-        for col_idx, col in enumerate(pnf_boxes):
-            for box_idx, box in enumerate(col):
-                x_pos.append(col_idx)
-                y_pos.append(last_price - box_idx * box_size)  # approximate y
-                colors.append("green" if box == "X" else "red")
-
-        fig.add_trace(go.Scatter(
-            x=x_pos,
-            y=y_pos,
-            mode="markers",
-            marker=dict(
-                symbol="square" if colors[0] == "green" else "circle",
-                size=10,
-                color=colors,
-                line=dict(width=1, color="black")
-            ),
-            name="P&F Boxes",
-            showlegend=False
-        ), row=1, col=1)
-
-    # ── Common overlays on all chart types ────────────────────────────────
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA13"], mode="lines", name="EMA 13", line=dict(color="#ffd700")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA21"], mode="lines", name="EMA 21", line=dict(color="#ff8c00")), row=1, col=1)
-
-    # CPR lines
-    fig.add_hline(y=cpr["pivot"], line_dash="dash", line_color="#00d4ff", annotation_text="Pivot", row=1, col=1)
-    fig.add_hline(y=cpr["bc"], line_dash="dot", line_color="#ff4466", annotation_text="BC", row=1, col=1)
-    fig.add_hline(y=cpr["tc"], line_dash="dot", line_color="#00ff88", annotation_text="TC", row=1, col=1)
-
-    # ── ADX & Volume subplots (same for all) ───────────────────────────────
-    fig.add_trace(go.Scatter(x=df["Date"], y=df["ADX"], name="ADX", line=dict(color="#ffd700")), row=2, col=1)
-    fig.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="Volume", marker_color=["#00ff88" if c >= o else "#ff4466" for c, o in zip(df["Close"], df["Open"])]), row=3, col=1)
-
-    fig.update_layout(
-        height=700,
-        title=f"{symbol} - {chart_type} Chart",
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis_rangeslider_visible=False,
-        margin=dict(l=40, r=40, t=60, b=40),
-        paper_bgcolor="#0a0e1a",
-        plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0")
-    )
-
-    return fig
-
-# ─────────────────────────────────────────────
 # MAIN EXECUTION
 # ─────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## ⚙️ Configuration")
+    st.markdown("---")
+    selected_index = st.selectbox("Select Index", ["NIFTY", "BANKNIFTY", "SENSEX"], index=0)
+    hist_days = st.slider("Historical Days", 15, 120, 60, step=5)
+
+    # Chart Type Selector
+    chart_type = st.selectbox(
+        "Chart Type",
+        options=["Candlestick", "Kagi", "Point & Figure"],
+        index=0,
+        help="Switch between classic candlestick and reversal-based charts"
+    )
+
+    # Optional controls for P&F and Kagi
+    if chart_type in ["Point & Figure", "Kagi"]:
+        box_size = st.slider(
+            "Box/Reversal Size",
+            min_value=0.25, max_value=5.0, value=1.0, step=0.25,
+            help="Box size for P&F or reversal threshold for Kagi (in points)"
+        )
+        reversal_boxes = st.slider(
+            "Reversal (boxes)",
+            min_value=1, max_value=5, value=3, step=1,
+            help="Number of boxes needed for reversal"
+        )
+    else:
+        box_size = 1.0
+        reversal_boxes = 3
+
+    st.markdown("---")
+    st.markdown("##### 🔑 API Keys (Optional)")
+    anthropic_key = st.text_input("Anthropic API Key", type="password", placeholder="sk-ant-...")
+    dhan_client_id = st.text_input("Dhan Client ID", placeholder="Client ID")
+    dhan_token = st.text_input("Dhan Access Token", type="password", placeholder="Access Token")
+    st.markdown("---")
+    refresh = st.button("🔄 Refresh Data", use_container_width=True)
+    auto_refresh = st.checkbox("Auto Refresh (60s)", value=False)
+
 with st.spinner("Fetching live market data..."):
     hist_df = fetch_historical_data(selected_index, hist_days)
     if hist_df.empty:
@@ -670,8 +580,8 @@ fig = make_subplots(
 # ── Main Chart Type ────────────────────────────────────────────────
 if chart_type == "Candlestick":
     fig.add_trace(go.Candlestick(
-        x=data["Date"], open=data["Open"], high=data["High"],
-        low=data["Low"], close=data["Close"],
+        x=hist_df["Date"], open=hist_df["Open"], high=hist_df["High"],
+        low=hist_df["Low"], close=hist_df["Close"],
         name="Candlestick",
         increasing_line_color="#00ff88",
         decreasing_line_color="#ff4466",
@@ -680,7 +590,7 @@ if chart_type == "Candlestick":
     ), row=1, col=1)
 
 elif chart_type == "Kagi":
-    kagi = data["Close"].copy()
+    kagi = hist_df["Close"].copy()
     direction = np.sign(kagi.diff())
     reversal_points = np.where(direction != direction.shift())[0]
     for i in range(len(reversal_points)-1):
@@ -703,9 +613,9 @@ elif chart_type == "Point & Figure":
     pnf_boxes = []
     current_col = []
     current_dir = 1
-    last_price = data["Close"].iloc[0]
+    last_price = hist_df["Close"].iloc[0]
 
-    for price in data["Close"]:
+    for price in hist_df["Close"]:
         if price >= last_price + box_size * reversal_boxes:
             if current_dir == -1:
                 pnf_boxes.append(current_col)
@@ -747,8 +657,8 @@ elif chart_type == "Point & Figure":
     ), row=1, col=1)
 
 # ── Common overlays ────────────────────────────────────────────────────
-fig.add_trace(go.Scatter(x=data["Date"], y=data["EMA13"], mode="lines", name="EMA 13", line=dict(color="#ffd700")), row=1, col=1)
-fig.add_trace(go.Scatter(x=data["Date"], y=data["EMA21"], mode="lines", name="EMA 21", line=dict(color="#ff8c00")), row=1, col=1)
+fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA13"], mode="lines", name="EMA 13", line=dict(color="#ffd700")), row=1, col=1)
+fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA21"], mode="lines", name="EMA 21", line=dict(color="#ff8c00")), row=1, col=1)
 
 fig.add_hline(y=cpr["pivot"], line_dash="dash", line_color="#00d4ff", annotation_text="Pivot", row=1, col=1)
 fig.add_hline(y=cpr["bc"], line_dash="dot", line_color="#ff4466", annotation_text="BC", row=1, col=1)
@@ -758,8 +668,8 @@ fig.add_hline(y=cam_r3, line_color="#00ff88", line_dash="dash", annotation_text=
 fig.add_hline(y=fib_r3, line_color="#ffd700", line_dash="dash", annotation_text="Fib R3", row=1, col=1)
 
 # ── ADX & Volume ───────────────────────────────────────────────────────
-fig.add_trace(go.Scatter(x=data["Date"], y=data["ADX"], name="ADX", line=dict(color="#ffd700")), row=2, col=1)
-fig.add_trace(go.Bar(x=data["Date"], y=data["Volume"], name="Volume", marker_color=["#00ff88" if c >= o else "#ff4466" for c, o in zip(data["Close"], data["Open"])]), row=3, col=1)
+fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["ADX"], name="ADX", line=dict(color="#ffd700")), row=2, col=1)
+fig.add_trace(go.Bar(x=hist_df["Date"], y=hist_df["Volume"], name="Volume", marker_color=["#00ff88" if c >= o else "#ff4466" for c, o in zip(hist_df["Close"], hist_df["Open"])]), row=3, col=1)
 
 fig.update_layout(
     height=700,
@@ -776,6 +686,6 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
-# OPTION CHAIN & OTHER SECTIONS (unchanged)
+# OPTION CHAIN & OTHER SECTIONS (keep your existing code here)
 # ─────────────────────────────────────────────
-# ... (keep your existing option chain, CPR table, signal breakdown, footer code here)
+# ... paste your existing option chain, CPR table, signal breakdown, footer code here ...
