@@ -320,7 +320,7 @@ def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ─────────────────────────────────────────────
-# OPTION CHAIN PROCESSING
+# OPTION CHAIN PROCESSING + OI SIGNAL
 # ─────────────────────────────────────────────
 def process_option_chain(oc_data: dict, spot: float) -> pd.DataFrame:
     try:
@@ -370,14 +370,14 @@ def oi_buildup_signal(oc_df: pd.DataFrame, spot_change: float) -> str:
     
     if total_oi_chg > 0:
         if spot_change > 0:
-            return "Long Build Up (OI ↑ + Price ↑)"
+            return "Long Build Up"
         else:
-            return "Short Build Up (OI ↑ + Price ↓)"
+            return "Short Build Up"
     elif total_oi_chg < 0:
         if spot_change > 0:
-            return "Short Covering (OI ↓ + Price ↑)"
+            return "Short Covering"
         else:
-            return "Long Unwinding (OI ↓ + Price ↓)"
+            return "Long Unwinding"
     else:
         return "No Clear OI Change"
 
@@ -558,7 +558,7 @@ with st.spinner("Fetching live market data..."):
     analysis = generate_analysis(hist_df, cpr, pcr, oi_signal, spot_price)
 
 # ─────────────────────────────────────────────
-# LIVE METRICS ROW (with OI Interpretation added)
+# LIVE METRICS ROW (with OI Interpretation)
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">LIVE MARKET SNAPSHOT</div>', unsafe_allow_html=True)
 c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
@@ -588,7 +588,7 @@ with c7:
     oi_class = "metric-change-up" if "Build Up" in oi_sig or "Covering" in oi_sig else "metric-change-down"
     oi_icon = "🟢" if "Build Up" in oi_sig or "Covering" in oi_sig else "🔴"
     st.markdown(f"""
-    <div class="metric-card">
+    <div class="metric-card" style="border-left-color: { 'var(--green)' if oi_class == 'metric-change-up' else 'var(--red)' };">
         <div class="metric-label">OI Interpretation</div>
         <div class="metric-value">{oi_icon} {oi_sig.split(' (')[0]}</div>
         <div class="{oi_class}">{oi_sig.split(' (')[1][:-1] if '(' in oi_sig else ""}</div>
@@ -596,7 +596,69 @@ with c7:
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# SUMMARY + TAGS
+# OI REPRESENTATION SECTION (new visual chart)
+# ─────────────────────────────────────────────
+st.markdown('<div class="section-header">OPEN INTEREST REPRESENTATION</div>', unsafe_allow_html=True)
+
+if not oc_df.empty:
+    # Filter near-ATM strikes for clear visual
+    atm_range = spot_price * 0.02
+    oi_near = oc_df[(oc_df["Strike"] >= spot_price - atm_range) & (oc_df["Strike"] <= spot_price + atm_range)].copy()
+    if oi_near.empty:
+        oi_near = oc_df.iloc[max(0, len(oc_df) // 2 - 5): len(oc_df) // 2 + 5]
+
+    fig_oi = go.Figure()
+
+    fig_oi.add_trace(go.Bar(
+        x=oi_near["Strike"],
+        y=oi_near["CE_OI_Chg"],
+        name="CE OI Change",
+        marker_color="#ff4466",
+        opacity=0.8
+    ))
+
+    fig_oi.add_trace(go.Bar(
+        x=oi_near["Strike"],
+        y=oi_near["PE_OI_Chg"],
+        name="PE OI Change",
+        marker_color="#00ff88",
+        opacity=0.8
+    ))
+
+    fig_oi.add_vline(
+        x=spot_price,
+        line_dash="dash",
+        line_color="#00d4ff",
+        annotation_text=f"Spot {spot_price:,.0f}",
+        annotation_font_color="#00d4ff"
+    )
+
+    fig_oi.update_layout(
+        barmode="group",
+        height=400,
+        title="Open Interest Change Near ATM (CE vs PE)",
+        xaxis_title="Strike Price",
+        yaxis_title="Change in OI",
+        paper_bgcolor="#0a0e1a",
+        plot_bgcolor="#0d1117",
+        font=dict(family="JetBrains Mono", color="#e2e8f0"),
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=40, r=40, t=60, b=40)
+    )
+
+    st.plotly_chart(fig_oi, use_container_width=True)
+
+    # Summary interpretation
+    st.markdown(f"""
+    <div style="font-size:16px; margin:16px 0;">
+        <strong>Current OI Signal:</strong> {oi_icon} <span style="color:{'var(--green)' if oi_class == 'metric-change-up' else 'var(--red)'}">{oi_sig}</span>
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    st.info("Open Interest data not available. Try refreshing or check NSE connectivity.")
+
+# ─────────────────────────────────────────────
+# SUMMARY + TAGS (updated with OI)
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">AI ANALYSIS SUMMARY</div>', unsafe_allow_html=True)
 tag_html = ""
