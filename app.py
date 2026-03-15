@@ -146,7 +146,7 @@ def fetch_index_data(symbol: str) -> dict:
         return {"error": str(e)}
 
 @st.cache_data(ttl=120)
-def fetch_option_chain(symbol: str) -> dict:
+def fetch_option_chain(symbol: str, target_date: datetime = None) -> dict:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Accept": "*/*",
@@ -156,7 +156,13 @@ def fetch_option_chain(symbol: str) -> dict:
         session = requests.Session()
         session.get("https://www.nseindia.com", headers=headers, timeout=10)
         time.sleep(0.5)
-        url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
+        
+        if target_date:
+            date_fmt = target_date.strftime("%d-%m-%Y")
+            url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}&date={date_fmt}"
+        else:
+            url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
+        
         r = session.get(url, headers=headers, timeout=15)
         r.raise_for_status()
         return r.json()
@@ -545,7 +551,7 @@ with st.spinner("Fetching live market data..."):
     spot_price = float(index_live.get("last", last_row["Close"])) if index_live and "error" not in index_live else float(last_row["Close"])
     spot_change = float(index_live.get("variation", 0)) if index_live and "error" not in index_live else 0.0
     spot_pct = float(index_live.get("percentChange", 0)) if index_live and "error" not in index_live else 0.0
-    oc_data = fetch_option_chain(INDEX_SYMBOLS[selected_index]["option_chain"])
+    oc_data, last_updated_note = get_option_chain_with_fallback(INDEX_SYMBOLS[selected_index]["option_chain"])
     if "error" in oc_data:
         st.warning(f"⚠️ Option chain data unavailable: {oc_data['error']}")
         oc_df = pd.DataFrame()
@@ -596,7 +602,7 @@ with c7:
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# OI REPRESENTATION SECTION (new visual chart)
+# OPEN INTEREST REPRESENTATION SECTION (new visual chart)
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">OPEN INTEREST REPRESENTATION</div>', unsafe_allow_html=True)
 
@@ -655,10 +661,10 @@ if not oc_df.empty:
     </div>
     """, unsafe_allow_html=True)
 else:
-    st.info("Open Interest data not available. Try refreshing or check NSE connectivity.")
+    st.info("Open Interest data not available. Market closed or NSE connectivity issue. Showing last available data.")
 
 # ─────────────────────────────────────────────
-# SUMMARY + TAGS (updated with OI)
+# SUMMARY + TAGS
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">AI ANALYSIS SUMMARY</div>', unsafe_allow_html=True)
 tag_html = ""
@@ -801,7 +807,12 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
-# OPTION CHAIN & OTHER SECTIONS (add your existing code here if needed)
+# FOOTER
 # ─────────────────────────────────────────────
-# ... (option chain table, CPR table, signal breakdown, footer, etc.)
-# You can paste any remaining sections from your old code here
+st.markdown("---")
+st.markdown("""
+<div style='text-align:center; color:#64748b; font-size:11px; font-family: JetBrains Mono; padding: 10px 0;'>
+Nifty Analysis Bot · Built with Streamlit + NSE India API + pandas · For educational purposes only<br>
+⚠️ Not financial advice. Always verify signals with your own research before trading.
+</div>
+""", unsafe_allow_html=True)
