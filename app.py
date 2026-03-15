@@ -96,6 +96,18 @@ h2, h3 { font-family: 'Space Grotesk', sans-serif !important; color: var(--text)
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
+# MAIN TITLE (restored and prominent)
+# ─────────────────────────────────────────────
+st.markdown("""
+<div style='text-align:center; padding: 30px 0 20px;'>
+<h1 style='font-size:3.2rem; letter-spacing:-2px; margin:0;'>📈 NIFTY ANALYSIS BOT</h1>
+<p style='color:#64748b; font-family: JetBrains Mono; font-size:15px; letter-spacing:3px; margin-top:8px;'>
+LIVE MARKET INTELLIGENCE · OPTION CHAIN · SMART ANALYSIS
+</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────
 INDEX_SYMBOLS = {
@@ -232,7 +244,7 @@ def fetch_historical_data(symbol: str, days: int = 60) -> pd.DataFrame:
         return df
 
 # ─────────────────────────────────────────────
-# OI FALLBACK FUNCTION (new)
+# OI FALLBACK FUNCTION
 # ─────────────────────────────────────────────
 def get_option_chain_with_fallback(symbol: str):
     today = datetime.now()
@@ -240,7 +252,6 @@ def get_option_chain_with_fallback(symbol: str):
     
     if "error" in data or not data.get("records", {}).get("data"):
         st.info("Market closed or no live OI data available. Falling back to last trading day's data (Friday).")
-        # Try Friday (subtract days until weekday)
         last_trading_day = today - timedelta(days=1)
         while last_trading_day.weekday() >= 5:  # skip Sat/Sun
             last_trading_day -= timedelta(days=1)
@@ -486,27 +497,30 @@ def generate_analysis(df: pd.DataFrame, cpr: dict, pcr: float, oi_signal: str, s
         score -= 4; signals.append("Price below BB Lower — oversold on BB"); tags.append(("neutral", "Below BB"))
     # Clamp score
     score = int(np.clip(score, 5, 97))
-    # Narrative summary
+    # Narrative summary as bullet list
     if score >= 65:
         bias = "🟢 BULLISH"
     elif score <= 40:
         bias = "🔴 BEARISH"
     else:
         bias = "🟡 NEUTRAL / CONSOLIDATION"
-    key_bullets = " + ".join([t[1] for t in tags[:5]])
-    day_hl = ""
+    bullets = []
+    if "Long Build Up" in oi_signal or "Short Covering" in oi_signal:
+        bullets.append(f"🟢 {oi_signal}")
+    elif "Short Build Up" in oi_signal or "Long Unwinding" in oi_signal:
+        bullets.append(f"🔴 {oi_signal}")
+    else:
+        bullets.append(f"🟡 {oi_signal}")
+    bullets.append(f"ADX {adx:.0f} ({'trending' if adx > 25 else 'sideways'})")
+    bullets.append(f"Price {'above TC CPR' if spot > tc else ('below BC CPR' if spot < bc else 'inside CPR')}")
+    bullets.append(f"EMA13 {'<' if ema13 < ema21 else '>'} EMA21")
+    bullets.append(f"PCR {pcr:.2f}")
     if spot > prev_high:
-        day_hl = f"Bullish Day High Breakout ({spot:.1f} > {prev_high:.1f})"
+        bullets.append(f"Bullish Day High Breakout ({spot:.1f} > {prev_high:.1f})")
     elif spot < prev_low:
-        day_hl = f"Bearish Day Low Breakdown ({spot:.1f} < {prev_low:.1f})"
-    summary = (
-        f"{oi_signal} detected · ADX {adx:.0f} ({'trending' if adx > 25 else 'sideways'}) · "
-        f"Price {'above TC' if spot > tc else ('below BC' if spot < bc else 'inside')} CPR · "
-        f"{'EMA13 > EMA21' if ema13 > ema21 else 'EMA13 < EMA21'} · PCR {pcr:.2f}"
-        + (f" · {day_hl}" if day_hl else "")
-        + f" → **{bias}** (Confidence: {score}/100)"
-    )
-    return {"score": score, "bias": bias, "summary": summary, "signals": signals, "tags": tags}
+        bullets.append(f"Bearish Day Low Breakdown ({spot:.1f} < {prev_low:.1f})")
+    bullets.append(f"→ **{bias}** (Confidence: {score}/100)")
+    return {"score": score, "bias": bias, "bullets": bullets}
 
 # ─────────────────────────────────────────────
 # MAIN EXECUTION
@@ -621,18 +635,17 @@ with c7:
     st.markdown(f"""
     <div class="metric-card" style="border-left-color: { 'var(--green)' if oi_class == 'metric-change-up' else 'var(--red)' };">
         <div class="metric-label">OI Interpretation</div>
-        <div class="metric-value">{oi_icon} {oi_sig.split(' (')[0]}</div>
-        <div class="{oi_class}">{oi_sig.split(' (')[1][:-1] if '(' in oi_sig else ""}</div>
+        <div class="metric-value">{oi_icon} {oi_sig}</div>
+        <div class="{oi_class}"></div>
     </div>
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# OPEN INTEREST REPRESENTATION SECTION (visual chart)
+# OPEN INTEREST REPRESENTATION SECTION
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">OPEN INTEREST REPRESENTATION</div>', unsafe_allow_html=True)
 
 if not oc_df.empty:
-    # Filter near-ATM strikes for clear visual
     atm_range = spot_price * 0.02
     oi_near = oc_df[(oc_df["Strike"] >= spot_price - atm_range) & (oc_df["Strike"] <= spot_price + atm_range)].copy()
     if oi_near.empty:
@@ -679,9 +692,8 @@ if not oc_df.empty:
 
     st.plotly_chart(fig_oi, use_container_width=True)
 
-    # Summary interpretation
     st.markdown(f"""
-    <div style="font-size:16px; margin:16px 0;">
+    <div style="font-size:16px; margin:16px 0; text-align:center;">
         <strong>Current OI Signal:</strong> {oi_icon} <span style="color:{'var(--green)' if oi_class == 'metric-change-up' else 'var(--red)'}">{oi_sig}</span>
     </div>
     """, unsafe_allow_html=True)
@@ -689,26 +701,24 @@ else:
     st.info("Open Interest data not available. Market closed or NSE connectivity issue. Showing last available data.")
 
 # ─────────────────────────────────────────────
-# SUMMARY + TAGS
+# MARKET INTERPRETATION AS BULLET LIST
 # ─────────────────────────────────────────────
-st.markdown('<div class="section-header">AI ANALYSIS SUMMARY</div>', unsafe_allow_html=True)
-tag_html = ""
-for tag_type, tag_text in analysis["tags"]:
-    tag_html += f'<span class="tag-{tag_type}">{tag_text}</span> '
-progress_color = "#00ff88" if analysis['score'] > 60 else ("#ff4466" if analysis['score'] < 40 else "#ffd700")
-st.markdown(f"""
-<div class="summary-box">
-    <div class="summary-title">Market Interpretation — {selected_index}</div>
-    <div class="summary-text">{analysis['summary']}</div>
-    <div style='margin-top:14px;'>{tag_html}</div>
-    <div class="confidence-bar-container">
-        <div class="confidence-label">CONFIDENCE SCORE: {analysis['score']}/100</div>
-        <div style="background:#1e2d45; border-radius:8px; height:8px; margin-top:6px; overflow:hidden;">
-            <div style="background: {progress_color}; width:{analysis['score']}%; height:100%; border-radius:8px; transition:width 0.5s;"></div>
-        </div>
+st.markdown('<div class="section-header">MARKET INTERPRETATION</div>', unsafe_allow_html=True)
+bullets = analysis.get("bullets", [])  # fallback if not present
+if bullets:
+    bullet_html = ""
+    for bullet in bullets:
+        color = "var(--green)" if "🟢" in bullet or "BULLISH" in bullet else "var(--red)" if "🔴" in bullet or "BEARISH" in bullet else "var(--yellow)"
+        bullet_html += f'<li style="color:{color}; margin:6px 0;">{bullet}</li>'
+    st.markdown(f"""
+    <div class="summary-box">
+        <ul style="list-style:none; padding-left:0; margin:0;">
+            {bullet_html}
+        </ul>
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+else:
+    st.info("No interpretation bullets available.")
 
 # ─────────────────────────────────────────────
 # PRICE CHART WITH TYPE SELECTION
