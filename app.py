@@ -1182,6 +1182,126 @@ setInterval(updateClock, 1000);
 </body>
 </html>"""
 
+
+# ─────────────────────────────────────────────
+# SECTOR DEFINITIONS — CASH EQUITY ONLY (NO F&O)
+# ─────────────────────────────────────────────
+SECTORS = {
+    "Auto":        ["MARUTI","TATAMOTORS","M%26M","BAJAJ-AUTO","HEROMOTOCO","EICHERMOT","ASHOKLEY","TVSMOTOR","BALKRISIND","MOTHERSON"],
+    "IT":          ["TCS","INFY","HCLTECH","WIPRO","TECHM","LTIM","MPHASIS","PERSISTENT","COFORGE","KPITTECH"],
+    "Pharma":      ["SUNPHARMA","DRREDDY","CIPLA","DIVISLAB","AUROPHARMA","LUPIN","TORNTPHARM","ALKEM","IPCALAB","GLENMARK"],
+    "Banking":     ["HDFCBANK","ICICIBANK","KOTAKBANK","AXISBANK","SBIN","INDUSINDBK","FEDERALBNK","BANDHANBNK","IDFCFIRSTB","PNB"],
+    "FMCG":        ["HINDUNILVR","ITC","NESTLEIND","BRITANNIA","DABUR","MARICO","COLPAL","GODREJCP","EMAMILTD","VBL"],
+    "Metals":      ["TATASTEEL","JSWSTEEL","HINDALCO","VEDL","SAIL","NMDC","NATIONALUM","JINDALSTEL","APLAPOLLO","RATNAMANI"],
+    "Energy":      ["RELIANCE","ONGC","IOC","BPCL","GAIL","POWERGRID","NTPC","TATAPOWER","ADANIGREEN","CESC"],
+    "Realty":      ["DLF","GODREJPROP","OBEROIRLTY","PHOENIXLTD","PRESTIGE","SOBHA","BRIGADE","MAHLIFE","SUNTECK","KOLTEPATIL"],
+    "Infra":       ["LT","ABB","SIEMENS","BHEL","CUMMINSIND","THERMAX","KEC","KALPATPOWR","ENGINERSIN","GRINDWELL"],
+    "Consumption": ["TITAN","VOLTAS","WHIRLPOOL","HAVELLS","CROMPTON","BLUESTAR","VGUARD","SYMPHONY","RELAXO","BATAINDIA"],
+}
+
+SECTOR_ICONS = {
+    "Auto":"🚗","IT":"💻","Pharma":"💊","Banking":"🏦","FMCG":"🛒",
+    "Metals":"⚙️","Energy":"⚡","Realty":"🏢","Infra":"🏗️","Consumption":"🛍️",
+}
+
+@st.cache_data(ttl=120)
+def fetch_stock_quote(symbol: str) -> dict:
+    """Fetch live NSE equity quote — cash segment only, no F&O."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.nseindia.com/",
+    }
+    try:
+        session = requests.Session()
+        session.get("https://www.nseindia.com", headers=headers, timeout=8)
+        url = f"https://www.nseindia.com/api/quote-equity?symbol={requests.utils.quote(symbol)}"
+        r = session.get(url, headers=headers, timeout=8)
+        r.raise_for_status()
+        data = r.json()
+        pd_data   = data.get("priceInfo", {})
+        mkt_depth = data.get("marketDeptOrderBook", {})
+        trade_info = mkt_depth.get("tradeInfo", {})
+        buy_qty  = sum(b.get("quantity", 0) for b in mkt_depth.get("buy",  []))
+        sell_qty = sum(s.get("quantity", 0) for s in mkt_depth.get("sell", []))
+        return {
+            "symbol":    symbol,
+            "ltp":       float(pd_data.get("lastPrice",    0) or 0),
+            "change":    float(pd_data.get("change",       0) or 0),
+            "pct_change":float(pd_data.get("pChange",      0) or 0),
+            "volume":    int(trade_info.get("totalTradedVolume", 0) or 0),
+            "buy_qty":   int(buy_qty),
+            "sell_qty":  int(sell_qty),
+            "open":      float(pd_data.get("open",         0) or 0),
+            "high":      float((pd_data.get("intraDayHighLow") or {}).get("max", 0) or 0),
+            "low":       float((pd_data.get("intraDayHighLow") or {}).get("min", 0) or 0),
+            "prev_close":float(pd_data.get("previousClose", 0) or 0),
+        }
+    except Exception:
+        return {"symbol": symbol, "ltp": 0, "change": 0, "pct_change": 0,
+                "volume": 0, "buy_qty": 0, "sell_qty": 0,
+                "open": 0, "high": 0, "low": 0, "prev_close": 0}
+
+
+@st.cache_data(ttl=120)
+def fetch_sector_data(sector_name: str) -> pd.DataFrame:
+    """Fetch quotes for all stocks in a sector and compute volume buildup metrics."""
+    symbols = SECTORS.get(sector_name, [])
+    rows = []
+    for sym in symbols:
+        q = fetch_stock_quote(sym)
+        chg  = q["pct_change"]
+        vol  = q["volume"]
+        bq   = q["buy_qty"]
+        sq   = q["sell_qty"]
+        tot  = bq + sq
+        buy_pct = round(bq / tot * 100, 1) if tot > 0 else 50.0
+
+        if   chg >  0.5 and vol > 0: buildup = "Long Buildup"
+        elif chg < -0.5 and vol > 0: buildup = "Short Buildup"
+        elif chg >  0.1 and vol > 0: buildup = "Short Covering"
+        elif chg < -0.1 and vol > 0: buildup = "Long Unwinding"
+        else:                         buildup = "Neutral"
+
+        rows.append({
+            "Symbol":   sym,
+            "LTP":      q["ltp"],
+            "Change%":  round(chg, 2),
+            "Volume":   vol,
+            "Buy Qty":  bq,
+            "Sell Qty": sq,
+            "Buy%":     buy_pct,
+            "Buildup":  buildup,
+        })
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        mx = df["Volume"].max() or 1
+        df["Vol_Norm"] = (df["Volume"] / mx * 100).round(1)
+    else:
+        df["Vol_Norm"] = 50.0
+    return df
+
+
+def build_sector_summary(df: pd.DataFrame) -> dict:
+    """Aggregate sector-level signal from individual stock data."""
+    if df.empty:
+        return {"bias":"Neutral","score":50,"advancing":0,"declining":0,
+                "total_volume":0,"avg_change":0.0}
+    adv  = int((df["Change%"] >  0).sum())
+    dec  = int((df["Change%"] <  0).sum())
+    lb   = int((df["Buildup"] == "Long Buildup").sum())
+    sb   = int((df["Buildup"] == "Short Buildup").sum())
+    sc   = int((df["Buildup"] == "Short Covering").sum())
+    lu   = int((df["Buildup"] == "Long Unwinding").sum())
+    score = int(np.clip(50 + (adv-dec)*3 + (lb-sb)*4 + (sc-lu)*2, 5, 95))
+    bias  = "Bullish" if score >= 60 else "Bearish" if score <= 40 else "Neutral"
+    return {
+        "bias": bias, "score": score,
+        "advancing": adv, "declining": dec,
+        "total_volume": int(df["Volume"].sum()),
+        "avg_change": round(float(df["Change%"].mean()), 2),
+    }
+
 # ─────────────────────────────────────────────
 # MAIN EXECUTION
 # ─────────────────────────────────────────────
@@ -1265,11 +1385,12 @@ st.markdown(f"<p style='text-align:center; color:#64748b; font-size:11px;'>Last 
 # ─────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     f"📈 {selected_index} Live Dashboard",
     f"📊 {selected_index} OI & Option Chain",
     "🌍 Global Risk Monitor",
     f"🔮 {selected_index} Forecasts",
+    "🏭 Sector Volume Buildup",
 ])
 
 with tab1:
@@ -1413,6 +1534,328 @@ with tab4:
         st.metric("7d Trend", "Bullish", "EMA aligned + Day High breakout")
     with col3:
         st.metric("30d Risk", "Moderate", "PCR neutral, watch Red Sea + crude")
+
+
+# ─────────────────────────────────────────────
+# TAB 5: SECTOR VOLUME BUILDUP
+# ─────────────────────────────────────────────
+with tab5:
+    st.markdown("""
+    <div style='padding:6px 0 18px'>
+        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase'>
+        Cash equity stocks only · No futures or options · Refreshes every 2 min
+        </span>
+    </div>""", unsafe_allow_html=True)
+
+    # ── Top row: sector overview heatmap ──────────────────────────────────
+    st.markdown('<div class="section-header">SECTOR HEATMAP — VOLUME & PRICE BUILDUP</div>',
+                unsafe_allow_html=True)
+
+    sector_names = list(SECTORS.keys())
+
+    # Fetch summary for every sector (uses cache so fast after first load)
+    all_summaries = {}
+    with st.spinner("Loading sector data..."):
+        for sname in sector_names:
+            sdf = fetch_sector_data(sname)
+            all_summaries[sname] = build_sector_summary(sdf)
+
+    # ── Heatmap chart ──────────────────────────────────────────────────────
+    hm_labels, hm_scores, hm_changes, hm_colors, hm_text = [], [], [], [], []
+    for sname, summ in all_summaries.items():
+        icon = SECTOR_ICONS.get(sname, "")
+        hm_labels.append(f"{icon} {sname}")
+        hm_scores.append(summ["score"])
+        hm_changes.append(summ["avg_change"])
+        adv, dec = summ["advancing"], summ["declining"]
+        color = ("#00ff88" if summ["bias"] == "Bullish"
+                 else "#ff4466" if summ["bias"] == "Bearish"
+                 else "#ffd700")
+        hm_colors.append(color)
+        hm_text.append(
+            f"<b>{icon} {sname}</b><br>"
+            f"Bias: {summ['bias']}<br>"
+            f"Score: {summ['score']}/100<br>"
+            f"Avg Chg: {summ['avg_change']:+.2f}%<br>"
+            f"Advancing: {adv} | Declining: {dec}"
+        )
+
+    fig_hm = go.Figure()
+    fig_hm.add_trace(go.Bar(
+        x=hm_labels,
+        y=hm_scores,
+        marker_color=hm_colors,
+        text=[f"{s}/100" for s in hm_scores],
+        textposition="outside",
+        textfont=dict(family="JetBrains Mono", size=11, color="#e2e8f0"),
+        hovertext=hm_text,
+        hoverinfo="text",
+        width=0.55,
+    ))
+    fig_hm.add_trace(go.Scatter(
+        x=hm_labels,
+        y=hm_changes,
+        mode="markers+text",
+        marker=dict(
+            size=14,
+            color=["#00ff88" if c >= 0 else "#ff4466" for c in hm_changes],
+            symbol="diamond",
+            line=dict(width=1, color="#0a0e1a"),
+        ),
+        text=[f"{c:+.2f}%" for c in hm_changes],
+        textposition="top center",
+        textfont=dict(family="JetBrains Mono", size=10),
+        yaxis="y2",
+        name="Avg Price Change%",
+        hoverinfo="skip",
+    ))
+    fig_hm.update_layout(
+        height=340,
+        paper_bgcolor="#0a0e1a",
+        plot_bgcolor="#0d1117",
+        font=dict(family="JetBrains Mono", color="#e2e8f0"),
+        showlegend=False,
+        margin=dict(l=40, r=40, t=30, b=60),
+        yaxis=dict(
+            title="Buildup Score", range=[0, 110],
+            gridcolor="#1e2d45", zeroline=False,
+            tickfont=dict(size=10),
+        ),
+        yaxis2=dict(
+            title="Avg Chg%", overlaying="y", side="right",
+            range=[-5, 5], zeroline=True, zerolinecolor="#1e2d45",
+            tickfont=dict(size=10), showgrid=False,
+        ),
+        xaxis=dict(tickfont=dict(size=11)),
+        bargap=0.35,
+    )
+    st.plotly_chart(fig_hm, use_container_width=True)
+
+    # ── Sector selector + drill-down ──────────────────────────────────────
+    st.markdown('<div class="section-header">DRILL DOWN — STOCK LEVEL VOLUME BUILDUP</div>',
+                unsafe_allow_html=True)
+
+    col_sel, col_sort = st.columns([3, 2])
+    with col_sel:
+        chosen_sector = st.selectbox(
+            "Select Sector",
+            sector_names,
+            format_func=lambda s: f"{SECTOR_ICONS.get(s,'')} {s}",
+            key="sector_selector",
+        )
+    with col_sort:
+        sort_by = st.selectbox(
+            "Sort By",
+            ["Volume (High→Low)", "Change% (Top Gainers)", "Change% (Top Losers)", "Buy% (Most Bought)"],
+            key="sector_sort",
+        )
+
+    sdf = fetch_sector_data(chosen_sector)
+    summ = all_summaries[chosen_sector]
+
+    # ── Sector summary banner ──────────────────────────────────────────────
+    bias_color = ("#00ff88" if summ["bias"] == "Bullish"
+                  else "#ff4466" if summ["bias"] == "Bearish" else "#ffd700")
+    vol_fmt = (f"{summ['total_volume']/1_000_000:.1f}M"
+               if summ["total_volume"] >= 1_000_000
+               else f"{summ['total_volume']/1_000:.0f}K")
+
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
+                border:1px solid #1e2d45;border-left:3px solid {bias_color};
+                border-radius:10px;padding:14px 20px;margin:8px 0 16px;
+                display:flex;gap:40px;flex-wrap:wrap;align-items:center'>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SECTOR BIAS</div>
+            <div style='font-size:22px;font-weight:700;color:{bias_color};font-family:JetBrains Mono'>{summ["bias"].upper()}</div>
+        </div>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SCORE</div>
+            <div style='font-size:22px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{summ["score"]}/100</div>
+        </div>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>ADVANCING / DECLINING</div>
+            <div style='font-size:18px;font-weight:700;font-family:JetBrains Mono'>
+                <span style='color:#00ff88'>▲ {summ["advancing"]}</span>
+                &nbsp;/&nbsp;
+                <span style='color:#ff4466'>▼ {summ["declining"]}</span>
+            </div>
+        </div>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>AVG CHANGE</div>
+            <div style='font-size:18px;font-weight:700;color:{"#00ff88" if summ["avg_change"]>=0 else "#ff4466"};font-family:JetBrains Mono'>
+                {summ["avg_change"]:+.2f}%
+            </div>
+        </div>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>TOTAL VOLUME</div>
+            <div style='font-size:18px;font-weight:700;color:#e2e8f0;font-family:JetBrains Mono'>{vol_fmt}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not sdf.empty:
+        # Apply sort
+        if sort_by == "Volume (High→Low)":
+            sdf = sdf.sort_values("Volume", ascending=False)
+        elif sort_by == "Change% (Top Gainers)":
+            sdf = sdf.sort_values("Change%", ascending=False)
+        elif sort_by == "Change% (Top Losers)":
+            sdf = sdf.sort_values("Change%", ascending=True)
+        elif sort_by == "Buy% (Most Bought)":
+            sdf = sdf.sort_values("Buy%", ascending=False)
+        sdf = sdf.reset_index(drop=True)
+
+        # ── Volume Buildup horizontal bar chart ───────────────────────────
+        buildup_colors = {
+            "Long Buildup":    "#00ff88",
+            "Short Covering":  "#00d4ff",
+            "Neutral":         "#64748b",
+            "Long Unwinding":  "#ffa500",
+            "Short Buildup":   "#ff4466",
+        }
+        bar_colors = [buildup_colors.get(b, "#64748b") for b in sdf["Buildup"]]
+        bar_text   = [
+            f"{row.Symbol}  {row['Change%']:+.2f}%  Vol:{row.Vol_Norm:.0f}%  {row.Buildup}"
+            for _, row in sdf.iterrows()
+        ]
+
+        fig_bars = go.Figure()
+
+        # Volume bars (normalised)
+        fig_bars.add_trace(go.Bar(
+            y=sdf["Symbol"],
+            x=sdf["Vol_Norm"],
+            orientation="h",
+            marker_color=bar_colors,
+            marker_opacity=0.85,
+            name="Relative Volume",
+            text=[f"{v:.0f}%" for v in sdf["Vol_Norm"]],
+            textposition="inside",
+            textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
+            hovertext=bar_text,
+            hoverinfo="text",
+            width=0.55,
+        ))
+
+        # Change% scatter overlay
+        fig_bars.add_trace(go.Scatter(
+            y=sdf["Symbol"],
+            x=[50] * len(sdf),          # anchor at 50% mark
+            mode="text",
+            text=[f"{c:+.2f}%" for c in sdf["Change%"]],
+            textfont=dict(
+                family="JetBrains Mono", size=10,
+                color=["#00ff88" if c >= 0 else "#ff4466" for c in sdf["Change%"]],
+            ),
+            textposition="middle right",
+            hoverinfo="skip",
+            showlegend=False,
+        ))
+
+        fig_bars.update_layout(
+            height=max(380, len(sdf) * 38),
+            paper_bgcolor="#0a0e1a",
+            plot_bgcolor="#0d1117",
+            font=dict(family="JetBrains Mono", color="#e2e8f0"),
+            showlegend=False,
+            margin=dict(l=100, r=80, t=20, b=40),
+            xaxis=dict(
+                title="Relative Volume %", range=[0, 115],
+                gridcolor="#1e2d45", zeroline=False, tickfont=dict(size=10),
+            ),
+            yaxis=dict(
+                autorange="reversed", tickfont=dict(size=11),
+                gridcolor="#1e2d45",
+            ),
+            bargap=0.25,
+        )
+
+        # Vertical reference line at 50%
+        fig_bars.add_vline(x=50, line_dash="dot", line_color="#1e2d45", line_width=1)
+
+        st.plotly_chart(fig_bars, use_container_width=True)
+
+        # ── Legend ──────────────────────────────────────────────────────
+        st.markdown("""
+        <div style='display:flex;gap:18px;flex-wrap:wrap;padding:8px 0;font-family:JetBrains Mono;font-size:11px'>
+            <span><span style='color:#00ff88'>■</span> Long Buildup — Price ↑ + Volume ↑</span>
+            <span><span style='color:#00d4ff'>■</span> Short Covering — Price ↑ + OI ↓</span>
+            <span><span style='color:#64748b'>■</span> Neutral</span>
+            <span><span style='color:#ffa500'>■</span> Long Unwinding — Price ↓ + OI ↓</span>
+            <span><span style='color:#ff4466'>■</span> Short Buildup — Price ↓ + Volume ↑</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── Buy/Sell Order Imbalance chart ────────────────────────────────
+        st.markdown('<div class="section-header">ORDER BOOK IMBALANCE — BUY vs SELL PRESSURE</div>',
+                    unsafe_allow_html=True)
+
+        ob_df = sdf[sdf["Buy Qty"] + sdf["Sell Qty"] > 0].copy()
+        if not ob_df.empty:
+            fig_ob = go.Figure()
+            fig_ob.add_trace(go.Bar(
+                name="Buy Qty",
+                y=ob_df["Symbol"],
+                x=ob_df["Buy%"],
+                orientation="h",
+                marker_color="#00ff88",
+                marker_opacity=0.8,
+                text=[f"Buy {b:.0f}%" for b in ob_df["Buy%"]],
+                textposition="inside",
+                textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
+                hovertemplate="%{y}: Buy %{x:.1f}%<extra></extra>",
+            ))
+            fig_ob.add_trace(go.Bar(
+                name="Sell Qty",
+                y=ob_df["Symbol"],
+                x=100 - ob_df["Buy%"],
+                orientation="h",
+                marker_color="#ff4466",
+                marker_opacity=0.8,
+                text=[f"Sell {100-b:.0f}%" for b in ob_df["Buy%"]],
+                textposition="inside",
+                textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
+                hovertemplate="%{y}: Sell %{x:.1f}%<extra></extra>",
+            ))
+            fig_ob.update_layout(
+                barmode="stack",
+                height=max(320, len(ob_df) * 36),
+                paper_bgcolor="#0a0e1a",
+                plot_bgcolor="#0d1117",
+                font=dict(family="JetBrains Mono", color="#e2e8f0"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1),
+                margin=dict(l=100, r=40, t=30, b=40),
+                xaxis=dict(
+                    title="Order Book Split %", range=[0, 100],
+                    gridcolor="#1e2d45", ticksuffix="%",
+                    tickfont=dict(size=10),
+                ),
+                yaxis=dict(autorange="reversed", tickfont=dict(size=11),
+                           gridcolor="#1e2d45"),
+            )
+            fig_ob.add_vline(x=50, line_dash="dot", line_color="#64748b", line_width=1)
+            st.plotly_chart(fig_ob, use_container_width=True)
+        else:
+            st.info("Order book data not available — market may be closed.")
+
+        # ── Raw data table ────────────────────────────────────────────────
+        with st.expander("📋 Raw Stock Data Table"):
+            display_df = sdf[["Symbol","LTP","Change%","Volume","Buy%","Buildup"]].copy()
+            display_df["Volume"] = display_df["Volume"].apply(
+                lambda v: f"{v/1_000_000:.2f}M" if v >= 1_000_000 else f"{v/1_000:.0f}K" if v >= 1_000 else str(v)
+            )
+            st.dataframe(
+                display_df.style
+                    .applymap(lambda v: "color: #00ff88" if isinstance(v, float) and v > 0
+                              else "color: #ff4466" if isinstance(v, float) and v < 0 else "",
+                              subset=["Change%"])
+                    .format({"LTP": "{:.2f}", "Change%": "{:+.2f}%", "Buy%": "{:.1f}%"}),
+                use_container_width=True,
+            )
+    else:
+        st.warning(f"Could not fetch data for {chosen_sector}. Market may be closed or NSE API unavailable.")
 
 # ─────────────────────────────────────────────
 # FOOTER
