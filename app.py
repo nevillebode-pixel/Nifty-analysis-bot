@@ -1,6 +1,6 @@
 """
-Nifty Analysis Bot — Enhanced with Global Risk Monitor Tab
-Inspired by worldmonitor.app for geopolitical context
+Nifty Analysis Bot — Full Streamlit App
+Uses nsepython for live NSE data, pandas for indicators, plotly for charts.
 """
 import streamlit as st
 import pandas as pd
@@ -600,10 +600,19 @@ st.markdown(f"<p style='text-align:center; color:#64748b; font-size:11px;'>Last 
 # ─────────────────────────────────────────────
 # TABS FOR DIFFERENT SECTIONS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["Nifty Live Dashboard", "OI & Option Chain", "Global Risk Monitor", "Forecasts"])
+# Dynamic tab title based on selected index
+dashboard_title = f"{selected_index} Live Dashboard"
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    dashboard_title,
+    "OI & Option Chain",
+    "Global Risk Monitor",
+    "Forecasts"
+])
 
 with tab1:
-    st.subheader("Nifty Live Dashboard")
+    st.subheader(dashboard_title)
+
     # LIVE METRICS ROW
     st.markdown('<div class="section-header">LIVE MARKET SNAPSHOT</div>', unsafe_allow_html=True)
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
@@ -789,7 +798,7 @@ with tab2:
         st.info("No OI data available.")
 
 with tab3:
-    st.subheader("Global Risk Monitor (Inspired by worldmonitor.app)")
+    st.subheader("Global Risk Monitor")
     st.markdown("### Real-Time Geopolitical & Instability Overview")
     col1, col2, col3 = st.columns(3)
     with col1:
