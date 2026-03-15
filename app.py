@@ -99,9 +99,9 @@ h2, h3 { font-family: 'Space Grotesk', sans-serif !important; color: var(--text)
 # MAIN TITLE
 # ─────────────────────────────────────────────
 st.markdown("""
-<div style='text-align:center; padding: 20px 0 10px;'>
+<div style='text-align:center; padding: 30px 0 20px;'>
 <h1 style='font-size:3.2rem; letter-spacing:-2px; margin:0;'>📈 NIFTY ANALYSIS BOT</h1>
-<p style='color:#64748b; font-family: JetBrains Mono; font-size:15px; letter-spacing:3px; margin-top:6px;'>
+<p style='color:#64748b; font-family: JetBrains Mono; font-size:15px; letter-spacing:3px; margin-top:8px;'>
 LIVE MARKET INTELLIGENCE · OPTION CHAIN · GLOBAL RISK OVERVIEW
 </p>
 </div>
@@ -417,7 +417,7 @@ def oi_buildup_signal(oc_df: pd.DataFrame, spot_change: float) -> str:
         return "No Clear OI Change"
 
 # ─────────────────────────────────────────────
-# ANALYSIS + CONFIDENCE SCORE
+# ANALYSIS + CONFIDENCE SCORE (fixed scoping)
 # ─────────────────────────────────────────────
 def generate_analysis(df: pd.DataFrame, cpr: dict, pcr: float, oi_signal: str, spot: float) -> dict:
     last = df.iloc[-1]
@@ -499,16 +499,22 @@ def generate_analysis(df: pd.DataFrame, cpr: dict, pcr: float, oi_signal: str, s
     score = int(np.clip(score, 5, 97))
     # Bullet list for interpretation
     bullets = []
-    bullets.append(f"{oi_signal}")
+    if "Long Build Up" in oi_signal or "Short Covering" in oi_signal:
+        bullets.append(f"🟢 {oi_signal}")
+    elif "Short Build Up" in oi_signal or "Long Unwinding" in oi_signal:
+        bullets.append(f"🔴 {oi_signal}")
+    else:
+        bullets.append(f"🟡 {oi_signal}")
     bullets.append(f"ADX {adx:.0f} ({'trending' if adx > 25 else 'sideways'})")
     bullets.append(f"Price {'above TC CPR' if spot > tc else ('below BC CPR' if spot < bc else 'inside CPR')}")
-    bullets.append(f"EMA13 {'< ' if ema13 < ema21 else '>'} EMA21")
+    bullets.append(f"EMA13 {'<' if ema13 < ema21 else '>'} EMA21")
     bullets.append(f"PCR {pcr:.2f}")
     if spot > prev_high:
         bullets.append(f"Bullish Day High Breakout ({spot:.1f} > {prev_high:.1f})")
     elif spot < prev_low:
         bullets.append(f"Bearish Day Low Breakdown ({spot:.1f} < {prev_low:.1f})")
-    bullets.append(f"**{bias}** (Confidence: {score}/100)")
+    bias = "🟢 BULLISH" if score >= 65 else "🔴 BEARISH" if score <= 40 else "🟡 NEUTRAL / CONSOLIDATION"
+    bullets.append(f"→ **{bias}** (Confidence: {score}/100)")
     return {"score": score, "bias": bias, "bullets": bullets, "signals": signals, "tags": tags}
 
 # ─────────────────────────────────────────────
