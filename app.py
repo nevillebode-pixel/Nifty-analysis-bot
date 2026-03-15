@@ -523,11 +523,11 @@ def calc_pcr(oc_df: pd.DataFrame) -> float:
     total_ce = oc_df["CE_OI"].sum()
     return total_pe / total_ce if total_ce > 0 else 1.0
 
-def oi_buildup_signal(oc_df: pd.DataFrame, spot_change: float) -> str:
+def oi_buildup_signal(oc_df: pd.DataFrame, spot_change: float, spot: float = 0.0) -> str:
     if oc_df.empty:
         return "Neutral OI"
-    atm_range = spot_price * 0.02
-    atm = oc_df[(oc_df["Strike"] >= spot_price - atm_range) & (oc_df["Strike"] <= spot_price + atm_range)]
+    atm_range = spot * 0.02
+    atm = oc_df[(oc_df["Strike"] >= spot - atm_range) & (oc_df["Strike"] <= spot + atm_range)]
     if atm.empty:
         atm = oc_df.iloc[max(0, len(oc_df) // 2 - 5): len(oc_df) // 2 + 5]
     ce_oi_chg = atm["CE_OI_Chg"].sum()
@@ -1188,7 +1188,12 @@ setInterval(updateClock, 1000);
 with st.sidebar:
     st.markdown("## ⚙️ Configuration")
     st.markdown("---")
-    selected_index = st.selectbox("Select Index", ["NIFTY", "BANKNIFTY", "SENSEX"], index=0)
+    selected_index = st.selectbox(
+        "Select Index",
+        ["NIFTY", "BANKNIFTY", "SENSEX"],
+        index=0,
+        key="selected_index",
+    )
     hist_days = st.slider("Historical Days", 15, 120, 60, step=5)
 
     chart_type = st.selectbox(
@@ -1213,6 +1218,18 @@ with st.sidebar:
     st.markdown("---")
     refresh = st.button("🔄 Refresh Data", use_container_width=True)
     auto_refresh = st.checkbox("Auto Refresh (60s)", value=False)
+
+# ── Detect index switch and bust caches so stale data never bleeds across indices ──
+if "prev_index" not in st.session_state:
+    st.session_state["prev_index"] = selected_index
+
+if st.session_state["prev_index"] != selected_index or refresh:
+    fetch_historical_data.clear()
+    fetch_sensex_historical.clear()
+    fetch_index_data.clear()
+    fetch_sensex_data.clear()
+    fetch_option_chain.clear()
+    st.session_state["prev_index"] = selected_index
 
 with st.spinner("Fetching live market data..."):
     hist_df = fetch_historical_data(selected_index, hist_days)
@@ -1240,7 +1257,7 @@ with st.spinner("Fetching live market data..."):
     else:
         oc_df = process_option_chain(oc_data, spot_price)
         pcr = calc_pcr(oc_df)
-        oi_signal = oi_buildup_signal(oc_df, spot_change)
+        oi_signal = oi_buildup_signal(oc_df, spot_change, spot=spot_price)
     analysis = generate_analysis(hist_df, cpr, pcr, oi_signal, spot_price)
 
 st.markdown(f"<p style='text-align:center; color:#64748b; font-size:11px;'>Last updated: {last_updated_note} · Index: <span style='color:#00d4ff'>{selected_index}</span></p>", unsafe_allow_html=True)
@@ -1251,8 +1268,8 @@ st.markdown(f"<p style='text-align:center; color:#64748b; font-size:11px;'>Last 
 tab1, tab2, tab3, tab4 = st.tabs(["Nifty Live Dashboard", "OI & Option Chain", "🌍 Global Risk Monitor", "Forecasts"])
 
 with tab1:
-    st.subheader("Nifty Live Dashboard")
-    st.markdown('<div class="section-header">LIVE MARKET SNAPSHOT</div>', unsafe_allow_html=True)
+    st.subheader(f"{selected_index} Live Dashboard")
+    st.markdown(f'<div class="section-header">LIVE MARKET SNAPSHOT — {selected_index}</div>', unsafe_allow_html=True)
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     change_class = "metric-change-up" if spot_change >= 0 else "metric-change-down"
     change_arrow = "▲" if spot_change >= 0 else "▼"
