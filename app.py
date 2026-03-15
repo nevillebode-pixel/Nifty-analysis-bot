@@ -1265,7 +1265,12 @@ st.markdown(f"<p style='text-align:center; color:#64748b; font-size:11px;'>Last 
 # ─────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["Nifty Live Dashboard", "OI & Option Chain", "🌍 Global Risk Monitor", "Forecasts"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    f"📈 {selected_index} Live Dashboard",
+    f"📊 {selected_index} OI & Option Chain",
+    "🌍 Global Risk Monitor",
+    f"🔮 {selected_index} Forecasts",
+])
 
 with tab1:
     st.subheader(f"{selected_index} Live Dashboard")
