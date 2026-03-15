@@ -1183,6 +1183,154 @@ setInterval(updateClock, 1000);
 </html>"""
 
 
+
+# ─────────────────────────────────────────────
+# MA CROSSOVER SCANNER — FUNCTIONS
+# ─────────────────────────────────────────────
+
+@st.cache_data(ttl=300)
+def fetch_stock_history(symbol: str, days: int = 120) -> pd.DataFrame:
+    """Fetch daily OHLCV for a single NSE equity stock (cash segment)."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.nseindia.com/",
+    }
+    try:
+        session = requests.Session()
+        session.get("https://www.nseindia.com", headers=headers, timeout=8)
+        to_dt   = datetime.now()
+        from_dt = to_dt - timedelta(days=days + 40)   # buffer for holidays
+        fmt     = "%d-%m-%Y"
+        url = (
+            f"https://www.nseindia.com/api/historical/cm/equity"
+            f"?symbol={requests.utils.quote(symbol)}"
+            f"&series=[%22EQ%22]"
+            f"&from={from_dt.strftime(fmt)}&to={to_dt.strftime(fmt)}"
+        )
+        r = session.get(url, headers=headers, timeout=12)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        if not data:
+            raise ValueError("empty")
+        df = pd.DataFrame(data)
+        df.rename(columns={
+            "CH_TIMESTAMP":       "Date",
+            "CH_OPENING_PRICE":   "Open",
+            "CH_TRADE_HIGH_PRICE":"High",
+            "CH_TRADE_LOW_PRICE": "Low",
+            "CH_CLOSING_PRICE":   "Close",
+            "CH_TOT_TRADED_QTY":  "Volume",
+        }, inplace=True)
+        df["Date"]   = pd.to_datetime(df["Date"])
+        for c in ["Open","High","Low","Close","Volume"]:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        df.dropna(subset=["Close"], inplace=True)
+        df.sort_values("Date", inplace=True)
+        df.reset_index(drop=True, inplace=True)
+        return df[["Date","Open","High","Low","Close","Volume"]].tail(days)
+    except Exception:
+        return pd.DataFrame()
+
+
+def compute_mas(df: pd.DataFrame) -> pd.DataFrame:
+    """Add EMA20, EMA50, SMA50, SMA100 columns."""
+    if df.empty or len(df) < 20:
+        return df
+    df = df.copy()
+    df["EMA20"]  = df["Close"].ewm(span=20,  adjust=False).mean()
+    df["EMA50"]  = df["Close"].ewm(span=50,  adjust=False).mean()
+    df["SMA50"]  = df["Close"].rolling(50).mean()
+    df["SMA100"] = df["Close"].rolling(100).mean()
+    return df
+
+
+def detect_crossovers(df: pd.DataFrame) -> list:
+    """
+    Detect the most recent crossover events among the four MA pairs.
+    Returns a list of dicts, one per detected crossover (freshest first).
+    lookback = 5 bars — if a crossover happened within last 5 candles it's 'fresh'.
+    """
+    if df.empty or len(df) < 101:
+        return []
+    pairs = [
+        ("EMA20", "EMA50",  "EMA 20/50"),
+        ("EMA20", "SMA50",  "EMA 20 / SMA 50"),
+        ("EMA50", "SMA100", "EMA 50 / SMA 100"),
+        ("SMA50", "SMA100", "SMA 50/100"),
+    ]
+    events = []
+    lookback = 10   # bars to scan for a recent crossover
+    for fast, slow, label in pairs:
+        if fast not in df.columns or slow not in df.columns:
+            continue
+        s_fast = df[fast].dropna()
+        s_slow = df[slow].dropna()
+        common = s_fast.index.intersection(s_slow.index)
+        if len(common) < 2:
+            continue
+        f = s_fast.loc[common]
+        s = s_slow.loc[common]
+        diff = f - s
+        # Find last sign change
+        for i in range(len(diff) - 1, max(len(diff) - lookback - 1, 0), -1):
+            if diff.iloc[i] * diff.iloc[i - 1] < 0:   # sign flip
+                direction = "Bullish" if diff.iloc[i] > 0 else "Bearish"
+                bars_ago   = len(diff) - 1 - i
+                date_val   = df["Date"].iloc[df.index.get_loc(common[i])] if common[i] in df.index else None
+                events.append({
+                    "pair":      label,
+                    "direction": direction,
+                    "bars_ago":  bars_ago,
+                    "date":      date_val,
+                    "price":     round(df["Close"].iloc[df.index.get_loc(common[i])], 2),
+                    "fast_val":  round(f.iloc[i], 2),
+                    "slow_val":  round(s.iloc[i], 2),
+                })
+                break   # only the most recent crossover per pair
+    events.sort(key=lambda x: x["bars_ago"])
+    return events
+
+
+@st.cache_data(ttl=300)
+def scan_sector_crossovers(sector_name: str) -> list:
+    """
+    For every stock in a sector, fetch history, compute MAs, detect crossovers.
+    Returns list of result dicts sorted by freshness then signal strength.
+    """
+    symbols = SECTORS.get(sector_name, [])
+    results = []
+    for sym in symbols:
+        df = fetch_stock_history(sym, days=120)
+        if df.empty or len(df) < 55:
+            continue
+        df = compute_mas(df)
+        crossovers = detect_crossovers(df)
+        if not crossovers:
+            continue
+        # Overall bias from EMA20 vs SMA100 (broadest view)
+        last = df.iloc[-1]
+        bias = "Bullish" if last.get("EMA20", 0) > last.get("SMA100", 0) else "Bearish"
+        ema20_slope  = last["EMA20"]  - df["EMA20"].iloc[-4]  if "EMA20"  in df.columns else 0
+        sma100_slope = last["SMA100"] - df["SMA100"].iloc[-4] if "SMA100" in df.columns else 0
+        results.append({
+            "symbol":       sym,
+            "ltp":          round(float(last["Close"]), 2),
+            "change_pct":   round(float((last["Close"] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100), 2) if len(df) > 1 else 0.0,
+            "bias":         bias,
+            "crossovers":   crossovers,
+            "freshest_bars":crossovers[0]["bars_ago"] if crossovers else 999,
+            "ema20":        round(float(last.get("EMA20",  0)), 2),
+            "ema50":        round(float(last.get("EMA50",  0)), 2),
+            "sma50":        round(float(last.get("SMA50",  0)), 2),
+            "sma100":       round(float(last.get("SMA100", 0)), 2),
+            "ema20_slope":  round(float(ema20_slope),  2),
+            "sma100_slope": round(float(sma100_slope), 2),
+            "df":           df,   # kept for mini-chart rendering
+        })
+    results.sort(key=lambda x: (x["freshest_bars"], x["symbol"]))
+    return results
+
 # ─────────────────────────────────────────────
 # SECTOR DEFINITIONS — CASH EQUITY ONLY (NO F&O)
 # ─────────────────────────────────────────────
@@ -1385,12 +1533,13 @@ st.markdown(f"<p style='text-align:center; color:#64748b; font-size:11px;'>Last 
 # ─────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     f"📈 {selected_index} Live Dashboard",
     f"📊 {selected_index} OI & Option Chain",
     "🌍 Global Risk Monitor",
     f"🔮 {selected_index} Forecasts",
     "🏭 Sector Volume Buildup",
+    "🎯 MA Crossover Scanner",
 ])
 
 with tab1:
@@ -1856,6 +2005,392 @@ with tab5:
             )
     else:
         st.warning(f"Could not fetch data for {chosen_sector}. Market may be closed or NSE API unavailable.")
+
+
+# ─────────────────────────────────────────────
+# TAB 6: MA CROSSOVER SCANNER
+# ─────────────────────────────────────────────
+with tab6:
+    st.markdown("""
+    <div style='padding:6px 0 14px'>
+        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase'>
+        Cash equity · EMA 20 · EMA 50 · SMA 50 · SMA 100 · Fresh crossovers only · Not F&O
+        </span>
+    </div>""", unsafe_allow_html=True)
+
+    # ── Controls row ──────────────────────────────────────────────────────
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([2, 2, 2, 2])
+    with ctrl1:
+        scan_sector = st.selectbox(
+            "Sector to Scan",
+            list(SECTORS.keys()),
+            format_func=lambda s: f"{SECTOR_ICONS.get(s,'')} {s}",
+            key="crossover_sector",
+        )
+    with ctrl2:
+        bias_filter = st.selectbox(
+            "Bias Filter",
+            ["All", "Bullish Only", "Bearish Only"],
+            key="crossover_bias",
+        )
+    with ctrl3:
+        pair_filter = st.selectbox(
+            "MA Pair",
+            ["All Pairs", "EMA 20/50", "EMA 20 / SMA 50", "EMA 50 / SMA 100", "SMA 50/100"],
+            key="crossover_pair",
+        )
+    with ctrl4:
+        freshness = st.slider("Max bars since crossover", 1, 10, 5, key="crossover_fresh",
+                               help="Lower = only very recent crossovers")
+
+    # ── Scan button ───────────────────────────────────────────────────────
+    run_scan = st.button("🔍 Run Crossover Scan", use_container_width=True, key="run_scan_btn")
+    if "crossover_results" not in st.session_state or run_scan:
+        st.session_state["crossover_results"] = None
+        st.session_state["crossover_sector_scanned"] = None
+
+    if run_scan or st.session_state.get("crossover_sector_scanned") != scan_sector:
+        with st.spinner(f"Scanning {scan_sector} stocks for MA crossovers..."):
+            scan_sector_crossovers.clear()
+            results = scan_sector_crossovers(scan_sector)
+            st.session_state["crossover_results"] = results
+            st.session_state["crossover_sector_scanned"] = scan_sector
+
+    results = st.session_state.get("crossover_results") or []
+
+    # ── Apply filters ─────────────────────────────────────────────────────
+    filtered = []
+    for r in results:
+        if bias_filter == "Bullish Only" and r["bias"] != "Bullish":
+            continue
+        if bias_filter == "Bearish Only" and r["bias"] != "Bearish":
+            continue
+        # Filter crossovers by pair and freshness
+        cx_filtered = [
+            cx for cx in r["crossovers"]
+            if cx["bars_ago"] <= freshness
+            and (pair_filter == "All Pairs" or cx["pair"] == pair_filter)
+        ]
+        if not cx_filtered:
+            continue
+        r2 = dict(r)
+        r2["crossovers"] = cx_filtered
+        r2["freshest_bars"] = cx_filtered[0]["bars_ago"]
+        filtered.append(r2)
+
+    # ── Summary banner ────────────────────────────────────────────────────
+    bull_count = sum(1 for r in filtered if r["bias"] == "Bullish")
+    bear_count = sum(1 for r in filtered if r["bias"] == "Bearish")
+    fresh_count = sum(1 for r in filtered if r["freshest_bars"] <= 3)
+
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
+                border:1px solid #1e2d45;border-radius:10px;
+                padding:14px 20px;margin:8px 0 20px;
+                display:flex;gap:40px;flex-wrap:wrap;align-items:center'>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SCRIPS WITH CROSSOVERS</div>
+            <div style='font-size:28px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{len(filtered)}</div>
+        </div>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>BULLISH CROSSOVERS</div>
+            <div style='font-size:24px;font-weight:700;color:#00ff88;font-family:JetBrains Mono'>▲ {bull_count}</div>
+        </div>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>BEARISH CROSSOVERS</div>
+            <div style='font-size:24px;font-weight:700;color:#ff4466;font-family:JetBrains Mono'>▼ {bear_count}</div>
+        </div>
+        <div>
+            <div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>VERY FRESH (≤3 bars)</div>
+            <div style='font-size:24px;font-weight:700;color:#ffd700;font-family:JetBrains Mono'>⚡ {fresh_count}</div>
+        </div>
+        <div style='margin-left:auto;font-family:JetBrains Mono;font-size:10px;color:#64748b;text-align:right'>
+            Sector: {SECTOR_ICONS.get(scan_sector,"")} {scan_sector}<br>
+            {datetime.now().strftime("%d %b %Y %H:%M IST")}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not filtered:
+        st.info(f"No crossovers found in {scan_sector} with current filters. Try increasing 'Max bars' or changing the pair filter.")
+    else:
+        # ── Overview bar chart: all scrips coloured by bias ────────────────
+        st.markdown('<div class="section-header">CROSSOVER MAP — ALL QUALIFYING SCRIPS</div>',
+                    unsafe_allow_html=True)
+
+        ov_syms   = [r["symbol"]       for r in filtered]
+        ov_bars   = [r["freshest_bars"] for r in filtered]
+        ov_chg    = [r["change_pct"]    for r in filtered]
+        ov_bias   = [r["bias"]          for r in filtered]
+        ov_colors = ["#00ff88" if b == "Bullish" else "#ff4466" for b in ov_bias]
+        ov_hover  = [
+            f"<b>{r['symbol']}</b><br>"
+            f"Bias: {r['bias']}<br>"
+            f"LTP: ₹{r['ltp']:,.2f}<br>"
+            f"Change: {r['change_pct']:+.2f}%<br>"
+            f"Freshest crossover: {r['freshest_bars']} bar(s) ago<br>"
+            + "<br>".join(
+                f"  {cx['pair']} → {cx['direction']} ({cx['bars_ago']}b ago)"
+                for cx in r["crossovers"]
+            )
+            for r in filtered
+        ]
+
+        fig_ov = go.Figure()
+        fig_ov.add_trace(go.Bar(
+            x=ov_syms,
+            y=[freshness + 1 - b for b in ov_bars],   # invert: fresher = taller
+            marker_color=ov_colors,
+            marker_opacity=0.85,
+            text=[f"{b}b ago" for b in ov_bars],
+            textposition="outside",
+            textfont=dict(family="JetBrains Mono", size=10, color="#e2e8f0"),
+            hovertext=ov_hover,
+            hoverinfo="text",
+            width=0.55,
+        ))
+        # Change% scatter
+        fig_ov.add_trace(go.Scatter(
+            x=ov_syms,
+            y=ov_chg,
+            mode="markers+text",
+            marker=dict(
+                size=10,
+                color=["#00ff88" if c >= 0 else "#ff4466" for c in ov_chg],
+                symbol="diamond",
+                line=dict(width=1, color="#0a0e1a"),
+            ),
+            text=[f"{c:+.2f}%" for c in ov_chg],
+            textposition="top center",
+            textfont=dict(family="JetBrains Mono", size=9),
+            yaxis="y2",
+            name="Day Change%",
+            hoverinfo="skip",
+        ))
+        fig_ov.update_layout(
+            height=310,
+            paper_bgcolor="#0a0e1a",
+            plot_bgcolor="#0d1117",
+            font=dict(family="JetBrains Mono", color="#e2e8f0"),
+            showlegend=False,
+            margin=dict(l=40, r=60, t=30, b=60),
+            xaxis=dict(tickfont=dict(size=11), tickangle=-30),
+            yaxis=dict(
+                title="Freshness Score", gridcolor="#1e2d45",
+                zeroline=False, tickfont=dict(size=10),
+                range=[0, freshness + 2],
+            ),
+            yaxis2=dict(
+                title="Day Chg%", overlaying="y", side="right",
+                zeroline=True, zerolinecolor="#1e2d45",
+                showgrid=False, tickfont=dict(size=10),
+                range=[-6, 6],
+            ),
+        )
+        st.plotly_chart(fig_ov, use_container_width=True)
+
+        # ── Per-scrip cards with mini chart ───────────────────────────────
+        st.markdown('<div class="section-header">SCRIP DETAIL — PRICE + MA CHART</div>',
+                    unsafe_allow_html=True)
+
+        # Layout: 2 columns of cards
+        cols_per_row = 2
+        rows_needed  = (len(filtered) + cols_per_row - 1) // cols_per_row
+
+        for row_i in range(rows_needed):
+            card_cols = st.columns(cols_per_row)
+            for col_i, card_col in enumerate(card_cols):
+                idx = row_i * cols_per_row + col_i
+                if idx >= len(filtered):
+                    break
+                r = filtered[idx]
+                df_s = r["df"]
+                bias_col = "#00ff88" if r["bias"] == "Bullish" else "#ff4466"
+                chg_col  = "#00ff88" if r["change_pct"] >= 0 else "#ff4466"
+
+                with card_col:
+                    # Card header HTML
+                    cx_badges = "".join(
+                        f"<span style='background:{'rgba(0,255,136,0.12)' if cx['direction']=='Bullish' else 'rgba(255,68,102,0.12)'};"
+                        f"color:{'#00ff88' if cx['direction']=='Bullish' else '#ff4466'};"
+                        f"border:1px solid {'rgba(0,255,136,0.3)' if cx['direction']=='Bullish' else 'rgba(255,68,102,0.3)'};"
+                        f"border-radius:5px;padding:2px 8px;font-size:10px;font-family:JetBrains Mono;"
+                        f"margin:2px;display:inline-block'>"
+                        f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']} · {cx['bars_ago']}b ago</span>"
+                        for cx in r["crossovers"]
+                    )
+                    st.markdown(f"""
+                    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
+                                border:1px solid #1e2d45;border-left:3px solid {bias_col};
+                                border-radius:10px;padding:14px 16px;margin-bottom:4px'>
+                        <div style='display:flex;justify-content:space-between;align-items:flex-start'>
+                            <div>
+                                <span style='font-size:18px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{r["symbol"]}</span>
+                                <span style='font-size:11px;color:#64748b;font-family:JetBrains Mono;margin-left:10px'>
+                                    ₹{r["ltp"]:,.2f}
+                                </span>
+                            </div>
+                            <div style='text-align:right'>
+                                <span style='font-size:13px;font-weight:700;color:{chg_col};font-family:JetBrains Mono'>
+                                    {"▲" if r["change_pct"]>=0 else "▼"} {abs(r["change_pct"]):.2f}%
+                                </span>
+                                <br>
+                                <span style='font-size:11px;font-weight:600;color:{bias_col};font-family:JetBrains Mono'>
+                                    {"🟢" if r["bias"]=="Bullish" else "🔴"} {r["bias"].upper()}
+                                </span>
+                            </div>
+                        </div>
+                        <div style='margin-top:8px'>{cx_badges}</div>
+                        <div style='margin-top:8px;display:flex;gap:16px;flex-wrap:wrap'>
+                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>
+                                EMA20 <span style='color:#ffd700'>₹{r["ema20"]:,.2f}</span>
+                            </span>
+                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>
+                                EMA50 <span style='color:#ff8c00'>₹{r["ema50"]:,.2f}</span>
+                            </span>
+                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>
+                                SMA50 <span style='color:#00d4ff'>₹{r["sma50"]:,.2f}</span>
+                            </span>
+                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>
+                                SMA100 <span style='color:#bf5fff'>₹{r["sma100"]:,.2f}</span>
+                            </span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Mini price + MA chart
+                    if not df_s.empty and len(df_s) >= 20:
+                        chart_df = df_s.tail(60)
+                        fig_mini = go.Figure()
+                        # Candlestick
+                        fig_mini.add_trace(go.Candlestick(
+                            x=chart_df["Date"],
+                            open=chart_df["Open"],
+                            high=chart_df["High"],
+                            low=chart_df["Low"],
+                            close=chart_df["Close"],
+                            name="Price",
+                            increasing_line_color="#00ff88",
+                            decreasing_line_color="#ff4466",
+                            increasing_fillcolor="rgba(0,255,136,0.6)",
+                            decreasing_fillcolor="rgba(255,68,102,0.6)",
+                            showlegend=False,
+                        ))
+                        # MAs
+                        for ma_col, ma_color, ma_name in [
+                            ("EMA20",  "#ffd700", "EMA 20"),
+                            ("EMA50",  "#ff8c00", "EMA 50"),
+                            ("SMA50",  "#00d4ff", "SMA 50"),
+                            ("SMA100", "#bf5fff", "SMA 100"),
+                        ]:
+                            if ma_col in chart_df.columns:
+                                fig_mini.add_trace(go.Scatter(
+                                    x=chart_df["Date"],
+                                    y=chart_df[ma_col],
+                                    mode="lines",
+                                    name=ma_name,
+                                    line=dict(color=ma_color, width=1.5),
+                                ))
+                        # Mark crossover points
+                        for cx in r["crossovers"]:
+                            if cx.get("date") is not None:
+                                fig_mini.add_vline(
+                                    x=cx["date"].timestamp() * 1000,
+                                    line_dash="dot",
+                                    line_color="#00ff88" if cx["direction"] == "Bullish" else "#ff4466",
+                                    line_width=1.5,
+                                    annotation_text=f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']}",
+                                    annotation_font=dict(size=9, color="#e2e8f0", family="JetBrains Mono"),
+                                    annotation_position="top left",
+                                )
+                        fig_mini.update_layout(
+                            height=280,
+                            paper_bgcolor="#0a0e1a",
+                            plot_bgcolor="#0d1117",
+                            font=dict(family="JetBrains Mono", color="#e2e8f0", size=9),
+                            margin=dict(l=40, r=10, t=10, b=30),
+                            xaxis=dict(
+                                rangeslider_visible=False,
+                                gridcolor="#1e2d45",
+                                tickfont=dict(size=8),
+                            ),
+                            yaxis=dict(
+                                gridcolor="#1e2d45",
+                                tickfont=dict(size=8),
+                                tickprefix="₹",
+                            ),
+                            legend=dict(
+                                orientation="h",
+                                yanchor="bottom", y=1.01,
+                                xanchor="left", x=0,
+                                font=dict(size=8),
+                            ),
+                            showlegend=True,
+                        )
+                        st.plotly_chart(fig_mini, use_container_width=True, key=f"mini_{r['symbol']}_{row_i}_{col_i}")
+
+        # ── MA values summary table ────────────────────────────────────────
+        st.markdown('<div class="section-header">MA VALUES SUMMARY TABLE</div>',
+                    unsafe_allow_html=True)
+        table_rows = []
+        for r in filtered:
+            cx_str = " | ".join(
+                f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']} ({cx['bars_ago']}b)"
+                for cx in r["crossovers"]
+            )
+            table_rows.append({
+                "Symbol":      r["symbol"],
+                "LTP (₹)":     r["ltp"],
+                "Day Chg%":    r["change_pct"],
+                "Bias":        r["bias"],
+                "EMA 20":      r["ema20"],
+                "EMA 50":      r["ema50"],
+                "SMA 50":      r["sma50"],
+                "SMA 100":     r["sma100"],
+                "Crossovers":  cx_str,
+            })
+        tdf = pd.DataFrame(table_rows)
+        if not tdf.empty:
+            def colour_bias(val):
+                if val == "Bullish":  return "color: #00ff88; font-weight:600"
+                if val == "Bearish":  return "color: #ff4466; font-weight:600"
+                return ""
+            def colour_chg(val):
+                try:
+                    return "color: #00ff88" if float(val) >= 0 else "color: #ff4466"
+                except Exception:
+                    return ""
+            styled = (
+                tdf.style
+                .applymap(colour_bias, subset=["Bias"])
+                .applymap(colour_chg,  subset=["Day Chg%"])
+                .format({
+                    "LTP (₹)":  "₹{:,.2f}",
+                    "Day Chg%": "{:+.2f}%",
+                    "EMA 20":   "₹{:,.2f}",
+                    "EMA 50":   "₹{:,.2f}",
+                    "SMA 50":   "₹{:,.2f}",
+                    "SMA 100":  "₹{:,.2f}",
+                })
+            )
+            st.dataframe(styled, use_container_width=True)
+
+        # ── Legend ────────────────────────────────────────────────────────
+        st.markdown("""
+        <div style='display:flex;gap:24px;flex-wrap:wrap;padding:10px 0 4px;
+                    font-family:JetBrains Mono;font-size:11px;color:#64748b'>
+            <span><span style='color:#ffd700'>━</span> EMA 20 &nbsp;·&nbsp;
+                  <span style='color:#ff8c00'>━</span> EMA 50 &nbsp;·&nbsp;
+                  <span style='color:#00d4ff'>━</span> SMA 50 &nbsp;·&nbsp;
+                  <span style='color:#bf5fff'>━</span> SMA 100</span>
+            <span>▲ = Bullish crossover (fast MA crossed above slow MA)</span>
+            <span>▼ = Bearish crossover (fast MA crossed below slow MA)</span>
+            <span>⚡ Fresh = crossover within last 3 bars</span>
+        </div>
+        <div style='font-family:JetBrains Mono;font-size:10px;color:#3d4d5e;padding-top:4px'>
+            ⚠️ For educational purposes only. Not financial advice. Always do your own research.
+        </div>
+        """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
 # FOOTER
