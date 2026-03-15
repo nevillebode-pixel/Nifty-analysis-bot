@@ -1,6 +1,6 @@
 """
 Nifty Analysis Bot — Full Streamlit App
-Uses nsepython for live NSE data, pandas-ta for indicators, plotly for charts.
+Uses nsepython for live NSE data, pandas for indicators, plotly for charts.
 """
 import streamlit as st
 import pandas as pd
@@ -8,7 +8,6 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
-import json
 from datetime import datetime, timedelta
 import time
 import warnings
@@ -500,6 +499,41 @@ with st.spinner("Fetching live market data..."):
         st.stop()
     hist_df = add_all_indicators(hist_df)
     cpr = calc_cpr(hist_df)
+
+    # Calculate Camarilla Pivots
+    def calculate_camarilla(df):
+        last_day = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
+        h = last_day['High']
+        l = last_day['Low']
+        c = last_day['Close']
+        range_val = h - l
+        r4 = c + range_val * 1.1 / 2
+        r3 = c + range_val * 1.1 / 4
+        r2 = c + range_val * 1.1 / 6
+        r1 = c + range_val * 1.1 / 12
+        s1 = c - range_val * 1.1 / 12
+        s2 = c - range_val * 1.1 / 6
+        s3 = c - range_val * 1.1 / 4
+        s4 = c - range_val * 1.1 / 2
+        return r1, r2, r3, r4, s1, s2, s3, s4
+
+    cam_r1, cam_r2, cam_r3, cam_r4, cam_s1, cam_s2, cam_s3, cam_s4 = calculate_camarilla(hist_df)
+
+    # Calculate Fibonacci Pivots
+    def calculate_fibonacci(df):
+        last_day = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
+        p = (last_day['High'] + last_day['Low'] + last_day['Close']) / 3
+        range_val = last_day['High'] - last_day['Low']
+        r1 = p + 0.382 * range_val
+        r2 = p + 0.618 * range_val
+        r3 = p + range_val
+        s1 = p - 0.382 * range_val
+        s2 = p - 0.618 * range_val
+        s3 = p - range_val
+        return r1, r2, r3, s1, s2, s3
+
+    fib_r1, fib_r2, fib_r3, fib_s1, fib_s2, fib_s3 = calculate_fibonacci(hist_df)
+
     last_row = hist_df.iloc[-1]
     index_live = fetch_index_data(selected_index)
     spot_price = float(index_live.get("last", last_row["Close"])) if index_live and "error" not in index_live else float(last_row["Close"])
@@ -686,6 +720,7 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────
-# OPTION CHAIN & OTHER SECTIONS (keep your existing code here)
+# OPTION CHAIN & OTHER SECTIONS (keep your existing code here if any)
 # ─────────────────────────────────────────────
-# ... paste your existing option chain, CPR table, signal breakdown, footer code here ...
+# ... (option chain table, CPR table, signal breakdown, footer, etc.)
+# You can paste your remaining code here if needed
