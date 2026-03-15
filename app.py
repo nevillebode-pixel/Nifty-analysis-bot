@@ -232,6 +232,24 @@ def fetch_historical_data(symbol: str, days: int = 60) -> pd.DataFrame:
         return df
 
 # ─────────────────────────────────────────────
+# OI FALLBACK FUNCTION (new)
+# ─────────────────────────────────────────────
+def get_option_chain_with_fallback(symbol: str):
+    today = datetime.now()
+    data = fetch_option_chain(symbol)
+    
+    if "error" in data or not data.get("records", {}).get("data"):
+        st.info("Market closed or no live OI data available. Falling back to last trading day's data (Friday).")
+        # Try Friday (subtract days until weekday)
+        last_trading_day = today - timedelta(days=1)
+        while last_trading_day.weekday() >= 5:  # skip Sat/Sun
+            last_trading_day -= timedelta(days=1)
+        data = fetch_option_chain(symbol, last_trading_day)
+        return data, last_trading_day.strftime("%d %b %Y 15:30 IST")
+    
+    return data, today.strftime("%d %b %Y %H:%M IST")
+
+# ─────────────────────────────────────────────
 # INDICATOR CALCULATIONS
 # ─────────────────────────────────────────────
 def calc_rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -551,6 +569,8 @@ with st.spinner("Fetching live market data..."):
     spot_price = float(index_live.get("last", last_row["Close"])) if index_live and "error" not in index_live else float(last_row["Close"])
     spot_change = float(index_live.get("variation", 0)) if index_live and "error" not in index_live else 0.0
     spot_pct = float(index_live.get("percentChange", 0)) if index_live and "error" not in index_live else 0.0
+
+    # Fetch OI with fallback
     oc_data, last_updated_note = get_option_chain_with_fallback(INDEX_SYMBOLS[selected_index]["option_chain"])
     if "error" in oc_data:
         st.warning(f"⚠️ Option chain data unavailable: {oc_data['error']}")
@@ -562,6 +582,11 @@ with st.spinner("Fetching live market data..."):
         pcr = calc_pcr(oc_df)
         oi_signal = oi_buildup_signal(oc_df, spot_change)
     analysis = generate_analysis(hist_df, cpr, pcr, oi_signal, spot_price)
+
+# ─────────────────────────────────────────────
+# LAST UPDATED NOTE
+# ─────────────────────────────────────────────
+st.markdown(f"<p style='text-align:center; color:#64748b; font-size:11px;'>Last updated: {last_updated_note} · Index: <span style='color:#00d4ff'>{selected_index}</span></p>", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
 # LIVE METRICS ROW (with OI Interpretation)
@@ -602,7 +627,7 @@ with c7:
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# OPEN INTEREST REPRESENTATION SECTION (new visual chart)
+# OPEN INTEREST REPRESENTATION SECTION (visual chart)
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">OPEN INTEREST REPRESENTATION</div>', unsafe_allow_html=True)
 
