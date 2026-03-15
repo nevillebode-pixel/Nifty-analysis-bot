@@ -244,7 +244,7 @@ def fetch_historical_data(symbol: str, days: int = 60) -> pd.DataFrame:
         return df
 
 # ─────────────────────────────────────────────
-# OI FALLBACK FUNCTION
+# OI FALLBACK FUNCTION (moved up so it's defined before use)
 # ─────────────────────────────────────────────
 def get_option_chain_with_fallback(symbol: str):
     today = datetime.now()
@@ -417,7 +417,7 @@ def oi_buildup_signal(oc_df: pd.DataFrame, spot_change: float) -> str:
         return "No Clear OI Change"
 
 # ─────────────────────────────────────────────
-# ANALYSIS + CONFIDENCE SCORE (fixed scoping)
+# ANALYSIS + CONFIDENCE SCORE (fixed)
 # ─────────────────────────────────────────────
 def generate_analysis(df: pd.DataFrame, cpr: dict, pcr: float, oi_signal: str, spot: float) -> dict:
     last = df.iloc[-1]
