@@ -1,0 +1,7 @@
+streamlit
+anthropic
+nsepython
+pandas
+plotly
+ta-lib
+dhanhq
