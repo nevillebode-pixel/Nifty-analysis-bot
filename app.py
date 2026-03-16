@@ -25,86 +25,505 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# CUSTOM CSS
+# CUSTOM CSS  —  Luxury Editorial Theme
+# Palette: deep obsidian + warm champagne gold
+# Type: Cormorant Garamond (display) + DM Mono (data)
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500&display=swap');
+
 :root {
-    --bg: #0a0e1a;
-    --card: #111827;
-    --border: #1e2d45;
-    --accent: #00d4ff;
-    --green: #00ff88;
-    --red: #ff4466;
-    --yellow: #ffd700;
-    --text: #e2e8f0;
-    --muted: #64748b;
+    /* Core palette */
+    --bg:        #0c0c0e;
+    --bg2:       #111115;
+    --card:      #16161b;
+    --card2:     #1c1c22;
+    --border:    #2a2a35;
+    --border2:   #35354a;
+
+    /* Signature gold accent */
+    --gold:      #c9a84c;
+    --gold-dim:  #8a6e2f;
+    --gold-glow: rgba(201,168,76,0.15);
+    --gold-soft: rgba(201,168,76,0.08);
+
+    /* Signal colours — muted, refined */
+    --green:     #4caf82;
+    --green-bg:  rgba(76,175,130,0.10);
+    --red:       #d95f5f;
+    --red-bg:    rgba(217,95,95,0.10);
+    --amber:     #e0a030;
+    --amber-bg:  rgba(224,160,48,0.10);
+
+    /* Text */
+    --text:      #e8e4dc;
+    --text2:     #b0aa9e;
+    --muted:     #6b6760;
+
+    /* Typography */
+    --font-display: 'Cormorant Garamond', Georgia, serif;
+    --font-data:    'DM Mono', 'Courier New', monospace;
+    --font-ui:      'Outfit', sans-serif;
 }
-.stApp { background: var(--bg); color: var(--text); font-family: 'Space Grotesk', sans-serif; }
+
+/* ── Base ─────────────────────────────────── */
+.stApp {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+}
+
+/* Subtle grain texture overlay on the whole app */
+.stApp::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.35;
+}
+
+/* ── Sidebar ──────────────────────────────── */
+div[data-testid="stSidebar"] {
+    background: var(--bg2) !important;
+    border-right: 1px solid var(--border) !important;
+}
+div[data-testid="stSidebar"] .stSelectbox label,
+div[data-testid="stSidebar"] .stTextInput label,
+div[data-testid="stSidebar"] .stSlider label,
+div[data-testid="stSidebar"] label {
+    color: var(--muted) !important;
+    font-size: 10px !important;
+    letter-spacing: 1.8px !important;
+    text-transform: uppercase !important;
+    font-family: var(--font-data) !important;
+}
+div[data-testid="stSidebar"] .stSelectbox > div > div,
+div[data-testid="stSidebar"] .stTextInput > div > div > input {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    font-family: var(--font-data) !important;
+    font-size: 12px !important;
+    border-radius: 6px !important;
+}
+div[data-testid="stSidebar"] hr {
+    border-color: var(--border) !important;
+    opacity: 0.5;
+}
+
+/* ── Tabs ─────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border) !important;
+    gap: 0 !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    color: var(--muted) !important;
+    font-family: var(--font-data) !important;
+    font-size: 10px !important;
+    letter-spacing: 1.5px !important;
+    text-transform: uppercase !important;
+    padding: 10px 20px !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    transition: color 0.2s, border-color 0.2s !important;
+}
+.stTabs [aria-selected="true"] {
+    color: var(--gold) !important;
+    border-bottom: 2px solid var(--gold) !important;
+    background: transparent !important;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    color: var(--text2) !important;
+}
+.stTabs [data-baseweb="tab-highlight"] {
+    background: transparent !important;
+}
+.stTabs [data-baseweb="tab-border"] {
+    background: var(--border) !important;
+}
+
+/* ── Metric card ──────────────────────────── */
 .metric-card {
-    background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
+    background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px 22px;
-    margin: 6px 0;
+    border-top: 1px solid var(--border2);
+    border-radius: 2px;
+    padding: 20px 18px 16px;
+    margin: 4px 0;
     position: relative;
     overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.metric-card:hover {
+    border-color: var(--gold-dim);
+    box-shadow: 0 0 0 1px var(--gold-dim), inset 0 1px 0 rgba(201,168,76,0.06);
 }
 .metric-card::before {
     content: '';
     position: absolute;
     top: 0; left: 0;
-    width: 3px; height: 100%;
-    background: var(--accent);
-    border-radius: 3px 0 0 3px;
+    width: 100%; height: 1px;
+    background: linear-gradient(90deg, var(--gold) 0%, transparent 60%);
+    opacity: 0.6;
 }
-.metric-label { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
-.metric-value { font-size: 26px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; margin: 4px 0; }
-.metric-change-up { font-size: 13px; color: var(--green); font-family: 'JetBrains Mono', monospace; }
-.metric-change-down { font-size: 13px; color: var(--red); font-family: 'JetBrains Mono', monospace; }
+.metric-card::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 40px; height: 40px;
+    background: radial-gradient(circle at top right, var(--gold-soft), transparent 70%);
+}
+.metric-label {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    font-family: var(--font-data);
+    margin-bottom: 8px;
+}
+.metric-value {
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-style: italic;
+    margin: 2px 0 6px;
+    letter-spacing: -0.5px;
+    line-height: 1;
+}
+.metric-change-up   { font-size: 11px; color: var(--green); font-family: var(--font-data); letter-spacing: 0.5px; }
+.metric-change-down { font-size: 11px; color: var(--red);   font-family: var(--font-data); letter-spacing: 0.5px; }
+.metric-neutral     { font-size: 11px; color: var(--amber); font-family: var(--font-data); letter-spacing: 0.5px; }
+
+/* ── Section header ───────────────────────── */
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-family: var(--font-data);
+    padding: 0 0 10px;
+    margin: 32px 0 18px;
+}
+.section-header::before {
+    content: '';
+    display: block;
+    width: 18px;
+    height: 1px;
+    background: var(--gold);
+    flex-shrink: 0;
+}
+.section-header::after {
+    content: '';
+    display: block;
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border) 0%, transparent 100%);
+}
+
+/* ── Summary / analysis box ───────────────── */
 .summary-box {
-    background: linear-gradient(135deg, #0d1b2a 0%, #0a1628 100%);
-    border: 1px solid var(--accent);
-    border-radius: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--gold);
+    border-radius: 2px;
     padding: 28px 32px;
     margin: 16px 0;
-    box-shadow: 0 0 40px rgba(0, 212, 255, 0.08);
+    position: relative;
+    overflow: hidden;
 }
-.summary-title { font-size: 12px; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; margin-bottom: 12px; }
-.summary-text { font-size: 17px; color: var(--text); line-height: 1.7; font-weight: 400; }
-.confidence-bar-container { margin-top: 18px; }
-.confidence-label { font-size: 11px; color: var(--muted); letter-spacing: 1px; font-family: 'JetBrains Mono', monospace; }
-.section-header {
-    font-size: 13px;
-    letter-spacing: 2px;
+.summary-box::before {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 120px; height: 120px;
+    background: radial-gradient(circle, var(--gold-soft), transparent 70%);
+    pointer-events: none;
+}
+.summary-title {
+    font-size: 9px;
+    color: var(--gold);
+    letter-spacing: 3px;
     text-transform: uppercase;
-    color: var(--accent);
-    font-family: 'JetBrains Mono', monospace;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
-    margin: 24px 0 16px;
+    font-family: var(--font-data);
+    margin-bottom: 14px;
 }
-.tag-bullish { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.3); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin: 2px; display: inline-block; }
-.tag-bearish { background: rgba(255,68,102,0.12); color: var(--red); border: 1px solid rgba(255,68,102,0.3); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin: 2px; display: inline-block; }
-.tag-neutral { background: rgba(255,215,0,0.10); color: var(--yellow); border: 1px solid rgba(255,215,0,0.3); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin: 2px; display: inline-block; }
-div[data-testid="stSidebar"] { background: #0d1117; border-right: 1px solid var(--border); }
-div[data-testid="stSidebar"] .stSelectbox label, div[data-testid="stSidebar"] .stTextInput label { color: var(--muted) !important; font-size: 12px; letter-spacing: 1px; }
-.stDataFrame { background: var(--card); }
-h1 { font-family: 'JetBrains Mono', monospace !important; color: var(--accent) !important; letter-spacing: -1px; }
-h2, h3 { font-family: 'Space Grotesk', sans-serif !important; color: var(--text) !important; }
+.summary-text {
+    font-size: 15px;
+    color: var(--text2);
+    line-height: 1.8;
+    font-family: var(--font-ui);
+    font-weight: 300;
+}
+.confidence-label {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    font-family: var(--font-data);
+    text-transform: uppercase;
+}
+
+/* ── Signal tags ──────────────────────────── */
+.tag-bullish {
+    background: var(--green-bg);
+    color: var(--green);
+    border: 1px solid rgba(76,175,130,0.25);
+    border-radius: 2px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-family: var(--font-data);
+    letter-spacing: 0.8px;
+    margin: 2px;
+    display: inline-block;
+    text-transform: uppercase;
+}
+.tag-bearish {
+    background: var(--red-bg);
+    color: var(--red);
+    border: 1px solid rgba(217,95,95,0.25);
+    border-radius: 2px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-family: var(--font-data);
+    letter-spacing: 0.8px;
+    margin: 2px;
+    display: inline-block;
+    text-transform: uppercase;
+}
+.tag-neutral {
+    background: var(--amber-bg);
+    color: var(--amber);
+    border: 1px solid rgba(224,160,48,0.25);
+    border-radius: 2px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-family: var(--font-data);
+    letter-spacing: 0.8px;
+    margin: 2px;
+    display: inline-block;
+    text-transform: uppercase;
+}
+
+/* ── Streamlit native overrides ───────────── */
+.stDataFrame {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 2px !important;
+}
+.stDataFrame thead tr th {
+    background: var(--card2) !important;
+    color: var(--muted) !important;
+    font-family: var(--font-data) !important;
+    font-size: 9px !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+.stDataFrame tbody tr td {
+    font-family: var(--font-data) !important;
+    font-size: 12px !important;
+    color: var(--text2) !important;
+    border-bottom: 1px solid rgba(42,42,53,0.5) !important;
+}
+.stDataFrame tbody tr:hover td {
+    background: var(--card2) !important;
+    color: var(--text) !important;
+}
+
+/* Buttons */
+.stButton > button {
+    background: transparent !important;
+    border: 1px solid var(--gold-dim) !important;
+    color: var(--gold) !important;
+    font-family: var(--font-data) !important;
+    font-size: 10px !important;
+    letter-spacing: 2px !important;
+    text-transform: uppercase !important;
+    border-radius: 2px !important;
+    padding: 10px 20px !important;
+    transition: all 0.2s !important;
+}
+.stButton > button:hover {
+    background: var(--gold-soft) !important;
+    border-color: var(--gold) !important;
+    box-shadow: 0 0 20px var(--gold-glow) !important;
+}
+
+/* Selectbox / inputs */
+.stSelectbox > div > div,
+.stTextInput > div > div > input {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    font-family: var(--font-data) !important;
+    font-size: 12px !important;
+    border-radius: 2px !important;
+}
+.stSelectbox > div > div:focus-within,
+.stTextInput > div > div > input:focus {
+    border-color: var(--gold-dim) !important;
+    box-shadow: 0 0 0 2px var(--gold-soft) !important;
+}
+
+/* Checkbox */
+.stCheckbox label {
+    color: var(--text2) !important;
+    font-family: var(--font-data) !important;
+    font-size: 11px !important;
+    letter-spacing: 0.8px !important;
+}
+
+/* Slider */
+.stSlider [data-baseweb="slider"] div[role="slider"] {
+    background: var(--gold) !important;
+    border-color: var(--gold) !important;
+}
+.stSlider [data-baseweb="slider"] div[data-testid="stSliderTrackFill"] {
+    background: var(--gold-dim) !important;
+}
+
+/* Alerts */
+.stSuccess {
+    background: var(--green-bg) !important;
+    border: 1px solid rgba(76,175,130,0.3) !important;
+    color: var(--green) !important;
+    border-radius: 2px !important;
+    font-family: var(--font-data) !important;
+    font-size: 12px !important;
+}
+.stWarning {
+    background: var(--amber-bg) !important;
+    border: 1px solid rgba(224,160,48,0.3) !important;
+    color: var(--amber) !important;
+    border-radius: 2px !important;
+    font-family: var(--font-data) !important;
+    font-size: 12px !important;
+}
+.stInfo {
+    background: rgba(201,168,76,0.05) !important;
+    border: 1px solid var(--gold-dim) !important;
+    color: var(--text2) !important;
+    border-radius: 2px !important;
+    font-family: var(--font-data) !important;
+    font-size: 12px !important;
+}
+
+/* Expander */
+.streamlit-expanderHeader {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 2px !important;
+    color: var(--text2) !important;
+    font-family: var(--font-data) !important;
+    font-size: 11px !important;
+    letter-spacing: 1px !important;
+}
+.streamlit-expanderHeader:hover {
+    border-color: var(--gold-dim) !important;
+    color: var(--gold) !important;
+}
+
+/* Spinner */
+.stSpinner > div {
+    border-top-color: var(--gold) !important;
+}
+
+/* Headings */
+h1, h2, h3, h4 {
+    font-family: var(--font-display) !important;
+    color: var(--text) !important;
+    font-weight: 300 !important;
+    letter-spacing: 0.5px !important;
+}
+h2 { font-size: 1.6rem !important; color: var(--text2) !important; }
+h3 { font-size: 1.2rem !important; color: var(--text2) !important; }
+
+/* Remove default Streamlit padding/margins */
+.block-container { padding-top: 1.5rem !important; }
+footer { visibility: hidden; }
+
+/* Plotly chart border */
+.js-plotly-plot .plotly { border-radius: 2px; }
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gold-dim); }
+
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# MAIN TITLE
+# MAIN TITLE  —  Luxury masthead
 # ─────────────────────────────────────────────
 st.markdown("""
-<div style='text-align:center; padding: 30px 0 20px;'>
-<h1 style='font-size:3.2rem; letter-spacing:-2px; margin:0;'>📈 NIFTY ANALYSIS BOT</h1>
-<p style='color:#64748b; font-family: JetBrains Mono; font-size:15px; letter-spacing:3px; margin-top:8px;'>
-LIVE MARKET INTELLIGENCE · OPTION CHAIN · GLOBAL RISK OVERVIEW
-</p>
+<div style='
+    text-align: center;
+    padding: 48px 0 36px;
+    position: relative;
+'>
+    <!-- Horizontal rule above -->
+    <div style='
+        width: 60px; height: 1px;
+        background: linear-gradient(90deg, transparent, #c9a84c, transparent);
+        margin: 0 auto 28px;
+    '></div>
+
+    <!-- Eyebrow label -->
+    <div style='
+        font-family: "DM Mono", monospace;
+        font-size: 9px;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: #8a6e2f;
+        margin-bottom: 14px;
+    '>India Market Intelligence Platform</div>
+
+    <!-- Main title -->
+    <div style='
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 4rem;
+        font-weight: 300;
+        font-style: italic;
+        color: #e8e4dc;
+        letter-spacing: 2px;
+        line-height: 1;
+        margin-bottom: 6px;
+    '>Nifty Analysis</div>
+    <div style='
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 1.1rem;
+        font-weight: 300;
+        color: #c9a84c;
+        letter-spacing: 10px;
+        text-transform: uppercase;
+        margin-bottom: 22px;
+    '>Bot</div>
+
+    <!-- Subtitle -->
+    <div style='
+        font-family: "DM Mono", monospace;
+        font-size: 10px;
+        letter-spacing: 2.5px;
+        color: #6b6760;
+        text-transform: uppercase;
+    '>Live · Option Chain · Global Risk · Sectors · Crossovers</div>
+
+    <!-- Bottom rule -->
+    <div style='
+        width: 60px; height: 1px;
+        background: linear-gradient(90deg, transparent, #c9a84c, transparent);
+        margin: 28px auto 0;
+    '></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -815,23 +1234,23 @@ def build_oi_bar_chart(oc_df: pd.DataFrame, spot: float, is_synthetic: bool) -> 
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=strikes_str, y=near["CE_OI"] / 1e5,
-        name="CE OI (Lakhs)", marker_color="#ff4466", opacity=0.85,
+        name="CE OI (Lakhs)", marker_color="#d95f5f", opacity=0.85,
     ))
     fig.add_trace(go.Bar(
         x=strikes_str, y=near["PE_OI"] / 1e5,
-        name="PE OI (Lakhs)", marker_color="#00ff88", opacity=0.85,
+        name="PE OI (Lakhs)", marker_color="#4caf82", opacity=0.85,
     ))
     title_sfx = "  ⚠️ Simulated Data" if is_synthetic else "  ✅ Live NSE Data"
     fig.update_layout(
         barmode="group", height=380,
-        paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0", size=11),
+        paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+        font=dict(family="DM Mono", color="#b0aa9e", size=11),
         title=dict(
             text=f"Open Interest — CE vs PE (Near ATM){title_sfx}",
-            font=dict(color="#ffd700" if is_synthetic else "#00d4ff", size=14),
+            font=dict(color="#e0a030" if is_synthetic else "#c9a84c", size=13),
         ),
-        xaxis=dict(title="Strike Price", gridcolor="#1e2d45", type="category", tickangle=-45),
-        yaxis=dict(title="OI (Lakhs)", gridcolor="#1e2d45"),
+        xaxis=dict(title="Strike Price", gridcolor="#2a2a35", type="category", tickangle=-45),
+        yaxis=dict(title="OI (Lakhs)", gridcolor="#2a2a35"),
         legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.22),
         margin=dict(l=10, r=10, t=50, b=60),
     )
@@ -848,20 +1267,20 @@ def build_oi_change_chart(oc_df: pd.DataFrame, spot: float) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=strikes_str, y=near["CE_OI_Chg"] / 1e3,
-        name="CE OI Δ", marker_color="#ff6688", opacity=0.9,
+        name="CE OI Δ", marker_color="#d95f5f", opacity=0.85,
     ))
     fig.add_trace(go.Bar(
         x=strikes_str, y=near["PE_OI_Chg"] / 1e3,
-        name="PE OI Δ", marker_color="#44ffaa", opacity=0.9,
+        name="PE OI Δ", marker_color="#4caf82", opacity=0.85,
     ))
     fig.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
     fig.update_layout(
         barmode="group", height=260,
-        paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0", size=10),
-        title=dict(text="OI Change (CE vs PE) — thousands", font=dict(color="#00d4ff", size=13)),
-        xaxis=dict(title="Strike", gridcolor="#1e2d45", type="category", tickangle=-45),
-        yaxis=dict(title="Δ OI (K)", gridcolor="#1e2d45"),
+        paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+        font=dict(family="DM Mono", color="#b0aa9e", size=10),
+        title=dict(text="OI Change (CE vs PE) — thousands", font=dict(color="#c9a84c", size=12)),
+        xaxis=dict(title="Strike", gridcolor="#2a2a35", type="category", tickangle=-45),
+        yaxis=dict(title="Δ OI (K)", gridcolor="#2a2a35"),
         legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.28),
         margin=dict(l=10, r=10, t=40, b=60),
     )
@@ -869,37 +1288,37 @@ def build_oi_change_chart(oc_df: pd.DataFrame, spot: float) -> go.Figure:
 
 
 def build_pcr_gauge(pcr: float) -> go.Figure:
-    color = "#00ff88" if pcr > 1.2 else "#ff4466" if pcr < 0.8 else "#ffd700"
+    color = "#4caf82" if pcr > 1.2 else "#d95f5f" if pcr < 0.8 else "#c9a84c"
     fig = go.Figure(go.Indicator(
         mode="gauge+number+delta",
         value=pcr,
-        title={"text": "Put-Call Ratio (OI)", "font": {"color": "#e2e8f0", "family": "JetBrains Mono", "size": 13}},
+        title={"text": "Put-Call Ratio (OI)", "font": {"color": "#b0aa9e", "family": "DM Mono", "size": 13}},
         delta={"reference": 1.0, "valueformat": ".3f"},
         gauge={
             "axis": {"range": [0, 3], "tickwidth": 1, "tickcolor": "#64748b",
-                     "tickfont": {"family": "JetBrains Mono", "size": 10}},
+                     "tickfont": {"family": "DM Mono", "size": 10}},
             "bar": {"color": color},
             "bgcolor": "#111827",
             "borderwidth": 1,
-            "bordercolor": "#1e2d45",
+            "bordercolor": "#2a2a35",
             "steps": [
-                {"range": [0, 0.7],   "color": "rgba(255,68,102,0.15)"},
-                {"range": [0.7, 1.3], "color": "rgba(255,215,0,0.10)"},
-                {"range": [1.3, 3],   "color": "rgba(0,255,136,0.12)"},
+                {"range": [0, 0.7],   "color": "rgba(217,95,95,0.12)"},
+                {"range": [0.7, 1.3], "color": "rgba(201,168,76,0.08)"},
+                {"range": [1.3, 3],   "color": "rgba(76,175,130,0.10)"},
             ],
             "threshold": {
-                "line": {"color": "#00d4ff", "width": 2},
+                "line": {"color": "#c9a84c", "width": 2},
                 "thickness": 0.75,
                 "value": 1.0,
             },
         },
-        number={"font": {"color": color, "family": "JetBrains Mono", "size": 32},
+        number={"font": {"color": color, "family": "DM Mono", "size": 32},
                 "valueformat": ".3f"},
     ))
     fig.update_layout(
         height=220,
-        paper_bgcolor="#0a0e1a",
-        font=dict(color="#e2e8f0"),
+        paper_bgcolor="#0c0c0e",
+        font=dict(color="#b0aa9e"),
         margin=dict(l=20, r=20, t=40, b=10),
     )
     return fig
@@ -921,9 +1340,9 @@ def build_oi_heatmap(oc_df: pd.DataFrame, spot: float) -> go.Figure:
         z=z,
         x=strikes_str,
         y=["CE OI", "PE OI"],
-        colorscale=[[0, "#0d1117"], [0.5, "#1e2d45"], [1, "#00d4ff"]],
+        colorscale=[[0, "#0c0c0e"], [0.5, "#2a2a35"], [1, "#c9a84c"]],
         showscale=True,
-        colorbar=dict(title="OI (L)", tickfont=dict(family="JetBrains Mono", size=9)),
+        colorbar=dict(title="OI (L)", tickfont=dict(family="DM Mono", size=9)),
         hoverongaps=False,
         hovertemplate="Strike: %{x}<br>%{y}: %{z:.1f}L<extra></extra>",
     ))
@@ -935,12 +1354,12 @@ def build_oi_heatmap(oc_df: pd.DataFrame, spot: float) -> go.Figure:
 
     fig.update_layout(
         height=180,
-        paper_bgcolor="#0a0e1a",
-        plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0", size=10),
-        title=dict(text="OI Heat Map — All Strikes (Lakhs)", font=dict(color="#00d4ff", size=13)),
-        xaxis=dict(title="Strike", tickangle=-45, gridcolor="#1e2d45", type="category"),
-        yaxis=dict(gridcolor="#1e2d45"),
+        paper_bgcolor="#0c0c0e",
+        plot_bgcolor="#111115",
+        font=dict(family="DM Mono", color="#b0aa9e", size=10),
+        title=dict(text="OI Heat Map — All Strikes (Lakhs)", font=dict(color="#c9a84c", size=12)),
+        xaxis=dict(title="Strike", tickangle=-45, gridcolor="#2a2a35", type="category"),
+        yaxis=dict(gridcolor="#2a2a35"),
         margin=dict(l=60, r=10, t=40, b=60),
     )
     return fig
@@ -959,7 +1378,7 @@ def get_geo_dashboard_html(anthropic_api_key: str = "") -> str:
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{
   background: #0a0e1a;
-  color: #e2e8f0;
+  color: #e8e4dc;
   font-family: 'IBM Plex Mono', monospace;
   padding: 12px;
 }}
@@ -969,87 +1388,87 @@ body {{
   --amber: #ffd700; --text: #e2e8f0; --muted: #64748b;
 }}
 .dash {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }}
-.card {{ background: #111827; border: 1px solid #1e2d45; border-radius: 12px; padding: 14px 16px; }}
+.card {{ background: #16161b; border: 1px solid #2a2a35; border-radius: 12px; padding: 14px 16px; }}
 .card-header {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }}
-.card-title {{ font-size: 10px; font-weight: 500; color: #64748b; letter-spacing: 0.1em; text-transform: uppercase; }}
+.card-title {{ font-size: 10px; font-weight: 500; color: #6b6760; letter-spacing: 0.1em; text-transform: uppercase; }}
 .live-dot {{ width: 6px; height: 6px; border-radius: 50%; background: #ff4466; animation: pulse 1.5s ease-in-out infinite; }}
 @keyframes pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:0.3}} }}
 @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
 .risk-panel {{ grid-column: 1 / 3; }}
 .regions-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
-.region-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #1e2d45; cursor: pointer; transition: border-color 0.15s; }}
-.region-item:hover {{ border-color: #00d4ff; }}
+.region-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #2a2a35; cursor: pointer; transition: border-color 0.15s; }}
+.region-item:hover {{ border-color: #c9a84c; }}
 .region-flag {{ font-size: 18px; line-height: 1; }}
 .region-info {{ flex: 1; min-width: 0; }}
-.region-name {{ font-size: 12px; font-weight: 500; color: #e2e8f0; }}
-.region-sub {{ font-size: 10px; color: #64748b; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+.region-name {{ font-size: 12px; font-weight: 500; color: #e8e4dc; }}
+.region-sub {{ font-size: 10px; color: #6b6760; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
 .risk-bar-wrap {{ width: 48px; flex-shrink: 0; }}
 .risk-bar-bg {{ height: 4px; border-radius: 2px; background: #1e2d45; overflow: hidden; }}
 .risk-bar-fill {{ height: 100%; border-radius: 2px; transition: width 0.4s; }}
 .risk-score {{ font-size: 10px; font-weight: 500; text-align: right; margin-top: 2px; }}
 .brief-panel {{ grid-column: 3 / 4; grid-row: 1 / 3; }}
-.brief-loading {{ display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px 10px; color: #64748b; font-size: 12px; text-align: center; min-height: 280px; }}
-.brief-spinner {{ width: 20px; height: 20px; border: 2px solid #1e2d45; border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; }}
-.brief-text {{ font-size: 12px; line-height: 1.7; color: #e2e8f0; }}
+.brief-loading {{ display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px 10px; color: #6b6760; font-size: 12px; text-align: center; min-height: 280px; }}
+.brief-spinner {{ width: 20px; height: 20px; border: 2px solid #1e2d45; border-top-color: #c9a84c; border-radius: 50%; animation: spin 0.8s linear infinite; }}
+.brief-text {{ font-size: 12px; line-height: 1.7; color: #e8e4dc; }}
 .brief-verdict {{ display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-top: 12px; justify-content: center; width: 100%; }}
-.verdict-buy {{ background: rgba(0,255,136,0.12); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }}
-.verdict-cash {{ background: rgba(255,215,0,0.10); color: #ffd700; border: 1px solid rgba(255,215,0,0.3); }}
-.verdict-sell {{ background: rgba(255,68,102,0.12); color: #ff4466; border: 1px solid rgba(255,68,102,0.3); }}
+.verdict-buy {{ background: rgba(76,175,130,0.10); color: #4caf82; border: 1px solid rgba(0,255,136,0.3); }}
+.verdict-cash {{ background: rgba(201,168,76,0.08); color: #c9a84c; border: 1px solid rgba(201,168,76,0.25); }}
+.verdict-sell {{ background: rgba(217,95,95,0.10); color: #d95f5f; border: 1px solid rgba(217,95,95,0.25); }}
 .brief-tag {{ font-size: 10px; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-bottom: 10px; font-weight: 500; }}
-.tag-high {{ background: rgba(255,68,102,0.12); color: #ff4466; }}
-.tag-med {{ background: rgba(255,215,0,0.10); color: #ffd700; }}
-.gen-btn {{ width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #1e2d45; background: #0d1117; color: #e2e8f0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.15s; margin-top: 12px; }}
-.gen-btn:hover {{ background: #111827; border-color: #00d4ff; color: #00d4ff; }}
+.tag-high {{ background: rgba(217,95,95,0.10); color: #d95f5f; }}
+.tag-med {{ background: rgba(201,168,76,0.08); color: #c9a84c; }}
+.gen-btn {{ width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #2a2a35; background: #0d1117; color: #e8e4dc; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.15s; margin-top: 12px; }}
+.gen-btn:hover {{ background: #16161b; border-color: #c9a84c; color: #c9a84c; }}
 .gen-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
 .commodities-panel {{ grid-column: 1 / 3; }}
 .commodities-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }}
-.commodity-card {{ padding: 10px 12px; border-radius: 8px; border: 1px solid #1e2d45; cursor: pointer; transition: border-color 0.15s; }}
-.commodity-card:hover {{ border-color: #00d4ff; }}
-.commodity-name {{ font-size: 10px; color: #64748b; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }}
-.commodity-price {{ font-size: 17px; font-weight: 500; margin: 4px 0 2px; color: #e2e8f0; }}
+.commodity-card {{ padding: 10px 12px; border-radius: 8px; border: 1px solid #2a2a35; cursor: pointer; transition: border-color 0.15s; }}
+.commodity-card:hover {{ border-color: #c9a84c; }}
+.commodity-name {{ font-size: 10px; color: #6b6760; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }}
+.commodity-price {{ font-size: 17px; font-weight: 500; margin: 4px 0 2px; color: #e8e4dc; }}
 .commodity-change {{ font-size: 11px; font-weight: 500; }}
-.commodity-driver {{ font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.3; }}
-.up {{ color: #00ff88; }} .dn {{ color: #ff4466; }} .flat {{ color: #64748b; }}
+.commodity-driver {{ font-size: 10px; color: #6b6760; margin-top: 4px; line-height: 1.3; }}
+.up {{ color: #4caf82; }} .dn {{ color: #d95f5f; }} .flat {{ color: #6b6760; }}
 .news-panel {{ grid-column: 1 / 3; }}
 .news-list {{ display: flex; flex-direction: column; gap: 8px; }}
-.news-item {{ display: flex; gap: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid #1e2d45; cursor: pointer; transition: border-color 0.15s; align-items: flex-start; }}
-.news-item:hover {{ border-color: #00d4ff; }}
+.news-item {{ display: flex; gap: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid #2a2a35; cursor: pointer; transition: border-color 0.15s; align-items: flex-start; }}
+.news-item:hover {{ border-color: #c9a84c; }}
 .impact-badge {{ font-size: 9px; font-weight: 500; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }}
-.impact-h {{ background: rgba(255,68,102,0.12); color: #ff4466; border: 1px solid rgba(255,68,102,0.3); }}
-.impact-m {{ background: rgba(255,215,0,0.10); color: #ffd700; border: 1px solid rgba(255,215,0,0.3); }}
-.impact-l {{ background: rgba(0,255,136,0.10); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }}
+.impact-h {{ background: rgba(217,95,95,0.10); color: #d95f5f; border: 1px solid rgba(217,95,95,0.25); }}
+.impact-m {{ background: rgba(201,168,76,0.08); color: #c9a84c; border: 1px solid rgba(201,168,76,0.25); }}
+.impact-l {{ background: rgba(76,175,130,0.08); color: #4caf82; border: 1px solid rgba(0,255,136,0.3); }}
 .news-body {{ flex: 1; min-width: 0; }}
-.news-headline {{ font-size: 12px; font-weight: 500; color: #e2e8f0; line-height: 1.4; }}
-.news-meta {{ font-size: 10px; color: #64748b; margin-top: 3px; }}
+.news-headline {{ font-size: 12px; font-weight: 500; color: #e8e4dc; line-height: 1.4; }}
+.news-meta {{ font-size: 10px; color: #6b6760; margin-top: 3px; }}
 .news-assets {{ display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }}
-.asset-tag {{ font-size: 9px; padding: 1px 6px; border-radius: 3px; background: #0d1117; color: #64748b; border: 1px solid #1e2d45; }}
+.asset-tag {{ font-size: 9px; padding: 1px 6px; border-radius: 3px; background: #0d1117; color: #6b6760; border: 1px solid #2a2a35; }}
 .signals-panel {{ grid-column: 3 / 4; }}
 .signal-item {{ display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1e2d45; }}
 .signal-item:last-child {{ border-bottom: none; }}
 .signal-icon {{ width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }}
-.sig-red {{ background: rgba(255,68,102,0.12); }}
-.sig-amber {{ background: rgba(255,215,0,0.10); }}
-.sig-green {{ background: rgba(0,255,136,0.10); }}
+.sig-red {{ background: rgba(217,95,95,0.10); }}
+.sig-amber {{ background: rgba(201,168,76,0.08); }}
+.sig-green {{ background: rgba(76,175,130,0.08); }}
 .signal-info {{ flex: 1; min-width: 0; }}
-.signal-label {{ font-size: 11px; font-weight: 500; color: #e2e8f0; }}
-.signal-sub {{ font-size: 10px; color: #64748b; margin-top: 1px; }}
+.signal-label {{ font-size: 11px; font-weight: 500; color: #e8e4dc; }}
+.signal-sub {{ font-size: 10px; color: #6b6760; margin-top: 1px; }}
 .signal-val {{ font-size: 11px; font-weight: 500; }}
 .forex-panel {{ grid-column: 1 / 2; }}
 .equities-panel {{ grid-column: 2 / 3; }}
-.row-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #1e2d45; margin-bottom: 6px; }}
-.pair-label {{ font-size: 12px; font-weight: 500; color: #e2e8f0; min-width: 72px; }}
-.pair-rate {{ font-size: 13px; font-weight: 500; flex: 1; color: #e2e8f0; }}
+.row-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #2a2a35; margin-bottom: 6px; }}
+.pair-label {{ font-size: 12px; font-weight: 500; color: #e8e4dc; min-width: 72px; }}
+.pair-rate {{ font-size: 13px; font-weight: 500; flex: 1; color: #e8e4dc; }}
 .pair-chg {{ font-size: 10px; font-weight: 500; }}
-.eq-name {{ font-size: 11px; font-weight: 500; color: #e2e8f0; flex: 1; }}
-.eq-sym {{ font-size: 9px; color: #64748b; }}
+.eq-name {{ font-size: 11px; font-weight: 500; color: #e8e4dc; flex: 1; }}
+.eq-sym {{ font-size: 9px; color: #6b6760; }}
 .header-bar {{ display: flex; align-items: center; justify-content: space-between; padding: 6px 0 14px; border-bottom: 1px solid #1e2d45; margin-bottom: 12px; }}
-.header-title {{ font-size: 15px; font-weight: 700; color: #00d4ff; letter-spacing: -0.01em; }}
-.header-meta {{ font-size: 10px; color: #64748b; margin-top: 2px; }}
-.clock {{ font-size: 11px; color: #e2e8f0; }}
-.nse-banner {{ background: linear-gradient(90deg, rgba(0,212,255,0.06) 0%, rgba(0,255,136,0.04) 100%); border: 1px solid rgba(0,212,255,0.2); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
+.header-title {{ font-size: 15px; font-weight: 700; color: #c9a84c; letter-spacing: -0.01em; }}
+.header-meta {{ font-size: 10px; color: #6b6760; margin-top: 2px; }}
+.clock {{ font-size: 11px; color: #e8e4dc; }}
+.nse-banner {{ background: linear-gradient(90deg, rgba(0,212,255,0.06) 0%, rgba(0,255,136,0.04) 100%); border: 1px solid rgba(201,168,76,0.20); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
 .nse-banner-item {{ font-size: 11px; }}
-.nse-banner-label {{ color: #64748b; }}
-.nse-banner-value {{ color: #00d4ff; font-weight: 500; }}
+.nse-banner-label {{ color: #6b6760; }}
+.nse-banner-value {{ color: #c9a84c; font-weight: 500; }}
 .sparkline {{ display: block; }}
 </style>
 </head>
@@ -1062,23 +1481,23 @@ body {{
   <div style="display:flex;align-items:center;gap:14px">
     <div style="display:flex;align-items:center;gap:5px">
       <div class="live-dot"></div>
-      <span style="font-size:10px;color:#64748b">LIVE</span>
+      <span style="font-size:10px;color:#6b6760">LIVE</span>
     </div>
     <div class="clock" id="clock">--:--:-- UTC</div>
   </div>
 </div>
 <div class="nse-banner">
-  <div class="nse-banner-item"><span class="nse-banner-label">India Macro Risk: </span><span class="nse-banner-value" style="color:#ffd700">MODERATE</span></div>
-  <div style="color:#1e2d45">|</div>
-  <div class="nse-banner-item"><span class="nse-banner-label">INR/USD Sensitivity: </span><span class="nse-banner-value" style="color:#ff4466">HIGH — Middle East tensions</span></div>
-  <div style="color:#1e2d45">|</div>
-  <div class="nse-banner-item"><span class="nse-banner-label">FII Flow Risk: </span><span class="nse-banner-value" style="color:#ffd700">ELEVATED — Risk-off globally</span></div>
-  <div style="color:#1e2d45">|</div>
-  <div class="nse-banner-item"><span class="nse-banner-label">Crude Oil Impact: </span><span class="nse-banner-value" style="color:#ff4466">BEARISH for India CAD</span></div>
+  <div class="nse-banner-item"><span class="nse-banner-label">India Macro Risk: </span><span class="nse-banner-value" style="color:#c9a84c">MODERATE</span></div>
+  <div style="color:#2a2a35">|</div>
+  <div class="nse-banner-item"><span class="nse-banner-label">INR/USD Sensitivity: </span><span class="nse-banner-value" style="color:#d95f5f">HIGH — Middle East tensions</span></div>
+  <div style="color:#2a2a35">|</div>
+  <div class="nse-banner-item"><span class="nse-banner-label">FII Flow Risk: </span><span class="nse-banner-value" style="color:#c9a84c">ELEVATED — Risk-off globally</span></div>
+  <div style="color:#2a2a35">|</div>
+  <div class="nse-banner-item"><span class="nse-banner-label">Crude Oil Impact: </span><span class="nse-banner-value" style="color:#d95f5f">BEARISH for India CAD</span></div>
 </div>
 <div class="dash">
   <div class="card risk-panel">
-    <div class="card-header"><span class="card-title">Geopolitical Risk Index</span><span style="font-size:10px;color:#64748b">8 regions · NSE relevant</span></div>
+    <div class="card-header"><span class="card-title">Geopolitical Risk Index</span><span style="font-size:10px;color:#6b6760">8 regions · NSE relevant</span></div>
     <div class="regions-grid" id="regions-grid"></div>
   </div>
   <div class="card brief-panel">
@@ -1087,11 +1506,11 @@ body {{
     <button class="gen-btn" id="gen-btn" onclick="generateBrief()">⚡ Generate AI Trade Brief</button>
   </div>
   <div class="card commodities-panel">
-    <div class="card-header"><span class="card-title">Commodity Signals — India Impact</span><span style="font-size:10px;color:#64748b">Geo-driven</span></div>
+    <div class="card-header"><span class="card-title">Commodity Signals — India Impact</span><span style="font-size:10px;color:#6b6760">Geo-driven</span></div>
     <div class="commodities-grid" id="commodities-grid"></div>
   </div>
   <div class="card news-panel">
-    <div class="card-header"><span class="card-title">Live News — Market Impact</span><div style="display:flex;align-items:center;gap:5px"><div class="live-dot"></div><span style="font-size:10px;color:#64748b">LIVE</span></div></div>
+    <div class="card-header"><span class="card-title">Live News — Market Impact</span><div style="display:flex;align-items:center;gap:5px"><div class="live-dot"></div><span style="font-size:10px;color:#6b6760">LIVE</span></div></div>
     <div class="news-list" id="news-list"></div>
   </div>
   <div class="card signals-panel">
@@ -1174,7 +1593,7 @@ async function generateBrief() {{
   const highNews=NEWS.filter(n=>n.impact==='HIGH').map(n=>n.headline).join('; ');
   const apiKey=ANTHROPIC_KEY||"";
   if (!apiKey||apiKey==="") {{
-    document.getElementById('brief-content').innerHTML=`<div class="brief-loading"><span style="color:#ffd700">⚠ Add your Anthropic API key in the sidebar to enable AI briefs</span><span style="font-size:10px;color:#64748b;margin-top:8px">Enter key in sidebar → Anthropic API Key field</span></div>`;
+    document.getElementById('brief-content').innerHTML=`<div class="brief-loading"><span style="color:#c9a84c">⚠ Add your Anthropic API key in the sidebar to enable AI briefs</span><span style="font-size:10px;color:#6b6760;margin-top:8px">Enter key in sidebar → Anthropic API Key field</span></div>`;
     btn.disabled=false;btn.textContent='⚡ Generate AI Trade Brief';return;
   }}
   const prompt=`You are a senior geopolitical trading analyst specialising in Indian markets (Nifty, Sensex, INR, MCX Gold, NSE equities).\n\nBased on the following current intelligence, write a concise trade brief for an Indian trader.\n\nTOP RISK REGIONS: ${{topRisks}}\n\nBREAKING HIGH-IMPACT NEWS: ${{highNews}}\n\nKEY INDIA MARKET SIGNALS: India VIX 16.4 (elevated), INR/USD at 83.42 (weak), Brent Crude +1.8% (bearish for India current account), MCX Gold up (safe haven bid), FIIs net sellers for 3 sessions, DII buying providing support.\n\nWrite your response in 3 sections:\n1. SITUATION: 2 sentences — the key global risk driver and its direct relevance to India.\n2. MARKET IMPACT: 2 sentences — what this means for Nifty, INR, MCX Gold, and the energy/IT sectors.\n3. TRADE STANCE: One sentence — BUY, HOLD CASH, or REDUCE, with one specific India-focused tactical idea.\n\nDirect, specific, actionable. Max 100 words.`;
@@ -1189,9 +1608,9 @@ async function generateBrief() {{
     const highRiskCount=REGIONS.filter(r=>r.score>=70).length;
     const riskTag=highRiskCount>=3?'HIGH':'MODERATE';
     const tagCls=riskTag==='HIGH'?'tag-high':'tag-med';
-    const formatted=text.replace(/SITUATION:/g,'<span style="font-size:10px;color:#64748b;letter-spacing:0.08em">SITUATION</span><br>').replace(/MARKET IMPACT:/g,'<br><span style="font-size:10px;color:#64748b;letter-spacing:0.08em">MARKET IMPACT</span><br>').replace(/TRADE STANCE:/g,'<br><span style="font-size:10px;color:#64748b;letter-spacing:0.08em">TRADE STANCE</span><br>');
+    const formatted=text.replace(/SITUATION:/g,'<span style="font-size:10px;color:#6b6760;letter-spacing:0.08em">SITUATION</span><br>').replace(/MARKET IMPACT:/g,'<br><span style="font-size:10px;color:#6b6760;letter-spacing:0.08em">MARKET IMPACT</span><br>').replace(/TRADE STANCE:/g,'<br><span style="font-size:10px;color:#6b6760;letter-spacing:0.08em">TRADE STANCE</span><br>');
     document.getElementById('brief-content').innerHTML=`<span class="brief-tag ${{tagCls}}">GEO-RISK: ${{riskTag}}</span><div class="brief-text">${{formatted}}</div><div class="brief-verdict ${{vclass}}">${{verdict}}</div>`;
-  }} catch(e) {{ document.getElementById('brief-content').innerHTML=`<div class="brief-loading"><span style="color:#ff4466">Error: ${{e.message}}</span></div>`; }}
+  }} catch(e) {{ document.getElementById('brief-content').innerHTML=`<div class="brief-loading"><span style="color:#d95f5f">Error: ${{e.message}}</span></div>`; }}
   btn.disabled=false;btn.textContent='⚡ Regenerate Brief';
 }}
 renderRegions();renderCommodities();renderNews();renderSignals();renderForex();renderEquities();updateClock();setInterval(updateClock,1000);
@@ -1555,8 +1974,10 @@ with st.spinner("Fetching live market data..."):
     )
 
 st.markdown(
-    f"<p style='text-align:center; color:#64748b; font-size:11px;'>"
-    f"Last updated: {last_updated_note} · Index: <span style='color:#00d4ff'>{selected_index}</span></p>",
+    f"<p style='text-align:center; color:#6b6760; font-size:10px; "
+    f"font-family:\"DM Mono\",monospace; letter-spacing:1.5px; text-transform:uppercase;'>"
+    f"Last updated: {last_updated_note} &nbsp;·&nbsp; "
+    f"<span style='color:#c9a84c'>{selected_index}</span></p>",
     unsafe_allow_html=True,
 )
 
@@ -1623,8 +2044,8 @@ with tab1:
         fig.add_trace(go.Candlestick(
             x=hist_df["Date"], open=hist_df["Open"], high=hist_df["High"],
             low=hist_df["Low"], close=hist_df["Close"], name="Candlestick",
-            increasing_line_color="#00ff88", decreasing_line_color="#ff4466",
-            increasing_fillcolor="#00ff88", decreasing_fillcolor="#ff4466"
+            increasing_line_color="#4caf82", decreasing_line_color="#d95f5f",
+            increasing_fillcolor="rgba(76,175,130,0.7)", decreasing_fillcolor="rgba(217,95,95,0.7)"
         ), row=1, col=1)
     elif chart_type == "Kagi":
         kagi = hist_df["Close"].copy()
@@ -1635,7 +2056,7 @@ with tab1:
             segment = kagi.iloc[start:end]
             fig.add_trace(go.Scatter(
                 x=segment.index, y=segment, mode='lines',
-                line=dict(color="#00d4ff" if segment.iloc[-1] > segment.iloc[0] else "#ff4466",
+                line=dict(color="#4caf82" if segment.iloc[-1] > segment.iloc[0] else "#d95f5f",
                           width=4 if abs(segment.iloc[-1] - segment.iloc[0]) > box_size * reversal_boxes else 1),
                 name="Kagi Segment", showlegend=False
             ), row=1, col=1)
@@ -1658,21 +2079,21 @@ with tab1:
             marker=dict(symbol="square", size=10, color=colors, line=dict(width=1, color="black")),
             name="P&F Boxes", showlegend=False), row=1, col=1)
 
-    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA13"], mode="lines", name="EMA 13", line=dict(color="#ffd700")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA21"], mode="lines", name="EMA 21", line=dict(color="#ff8c00")), row=1, col=1)
-    fig.add_hline(y=cpr["pivot"], line_dash="dash", line_color="#00d4ff", annotation_text="Pivot", row=1, col=1)
-    fig.add_hline(y=cpr["bc"], line_dash="dot", line_color="#ff4466", annotation_text="BC", row=1, col=1)
-    fig.add_hline(y=cpr["tc"], line_dash="dot", line_color="#00ff88", annotation_text="TC", row=1, col=1)
-    fig.add_hline(y=cam_r3, line_color="#00ff88", line_dash="dash", annotation_text="Cam R3", row=1, col=1)
-    fig.add_hline(y=fib_r3, line_color="#ffd700", line_dash="dash", annotation_text="Fib R3", row=1, col=1)
-    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["ADX"], name="ADX", line=dict(color="#ffd700")), row=2, col=1)
+    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA13"], mode="lines", name="EMA 13", line=dict(color="#c9a84c")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA21"], mode="lines", name="EMA 21", line=dict(color="#8a6e2f")), row=1, col=1)
+    fig.add_hline(y=cpr["pivot"], line_dash="dash", line_color="#c9a84c", annotation_text="Pivot", row=1, col=1)
+    fig.add_hline(y=cpr["bc"], line_dash="dot", line_color="#d95f5f", annotation_text="BC", row=1, col=1)
+    fig.add_hline(y=cpr["tc"], line_dash="dot", line_color="#4caf82", annotation_text="TC", row=1, col=1)
+    fig.add_hline(y=cam_r3, line_color="#4caf82", line_dash="dash", annotation_text="Cam R3", row=1, col=1)
+    fig.add_hline(y=fib_r3, line_color="#e0a030", line_dash="dash", annotation_text="Fib R3", row=1, col=1)
+    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["ADX"], name="ADX", line=dict(color="#c9a84c")), row=2, col=1)
     fig.add_trace(go.Bar(x=hist_df["Date"], y=hist_df["Volume"], name="Volume",
-                         marker_color=["#00ff88" if c >= o else "#ff4466" for c, o in zip(hist_df["Close"], hist_df["Open"])]), row=3, col=1)
+                         marker_color=["#4caf82" if c >= o else "#d95f5f" for c, o in zip(hist_df["Close"], hist_df["Open"])]), row=3, col=1)
     fig.update_layout(height=700, title=f"{selected_index} - {chart_type} Chart", showlegend=True,
                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                       xaxis_rangeslider_visible=False, margin=dict(l=40, r=40, t=60, b=40),
-                      paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                      font=dict(family="JetBrains Mono", color="#e2e8f0"))
+                      paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+                      font=dict(family="DM Mono", color="#b0aa9e"))
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -1705,13 +2126,13 @@ with tab2:
 
     k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
     for col, lbl, val, sub, clr in [
-        (k1, "Total CE OI",     f"{total_ce/1e5:.1f}L",         "Call Writers", "#ff4466"),
-        (k2, "Total PE OI",     f"{total_pe/1e5:.1f}L",         "Put Writers",  "#00ff88"),
-        (k3, "PCR (OI)",        f"{pcr_tab2:.3f}",               "Bullish >1.2 | Bearish <0.8", "#00d4ff"),
+        (k1, "Total CE OI",     f"{total_ce/1e5:.1f}L",         "Call Writers", "#d95f5f"),
+        (k2, "Total PE OI",     f"{total_pe/1e5:.1f}L",         "Put Writers",  "#4caf82"),
+        (k3, "PCR (OI)",        f"{pcr_tab2:.3f}",               "Bullish >1.2 | Bearish <0.8", "#c9a84c"),
         (k4, "CE OI Change",    f"{total_ce_chg/1e3:+.0f}K",    "vs prev session", "#ff8888"),
         (k5, "PE OI Change",    f"{total_pe_chg/1e3:+.0f}K",    "vs prev session", "#88ffbb"),
-        (k6, "Max CE Strike",   f"{max_ce_strike:.0f}",          "Resistance wall", "#ff4466"),
-        (k7, "Max PE Strike",   f"{max_pe_strike:.0f}",          "Support wall",    "#00ff88"),
+        (k6, "Max CE Strike",   f"{max_ce_strike:.0f}",          "Resistance wall", "#d95f5f"),
+        (k7, "Max PE Strike",   f"{max_pe_strike:.0f}",          "Support wall",    "#4caf82"),
     ]:
         with col:
             st.markdown(f"""
@@ -1722,22 +2143,22 @@ with tab2:
             </div>""", unsafe_allow_html=True)
 
     # ── OI signal banner ──────────────────────────────────────────────────
-    sig_color = ("#00ff88" if "Short Covering" in oi_signal_tab2 or "Long Buildup" in oi_signal_tab2
-                 else "#ff4466" if "Short Buildup" in oi_signal_tab2 or "Long Unwinding" in oi_signal_tab2
-                 else "#ffd700")
+    sig_color = ("#4caf82" if "Short Covering" in oi_signal_tab2 or "Long Buildup" in oi_signal_tab2
+                 else "#d95f5f" if "Short Buildup" in oi_signal_tab2 or "Long Unwinding" in oi_signal_tab2
+                 else "#c9a84c")
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                border:1px solid #1e2d45;border-left:4px solid {sig_color};
+    <div style="background:linear-gradient(135deg,#16161b 0%,#111115 100%);
+                border:1px solid #2a2a35;border-left:4px solid {sig_color};
                 border-radius:10px;padding:14px 20px;margin:12px 0;
                 display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-        <span style="font-size:22px">{"🟢" if sig_color=="#00ff88" else "🔴" if sig_color=="#ff4466" else "🟡"}</span>
+        <span style="font-size:22px">{"🟢" if sig_color=="#4caf82" else "🔴" if sig_color=="#d95f5f" else "🟡"}</span>
         <div>
-            <div style="font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px">OI BUILDUP SIGNAL</div>
-            <div style="font-size:18px;font-weight:700;color:{sig_color};font-family:JetBrains Mono">{oi_signal_tab2}</div>
+            <div style="font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px">OI BUILDUP SIGNAL</div>
+            <div style="font-size:18px;font-weight:700;color:{sig_color};font-family:DM Mono">{oi_signal_tab2}</div>
         </div>
         <div style="margin-left:auto;text-align:right">
-            <div style="font-size:10px;color:#64748b;font-family:JetBrains Mono">SPOT</div>
-            <div style="font-size:18px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono">{spot_price:,.2f}</div>
+            <div style="font-size:10px;color:#6b6760;font-family:DM Mono">SPOT</div>
+            <div style="font-size:18px;font-weight:700;color:#c9a84c;font-family:DM Mono">{spot_price:,.2f}</div>
         </div>
     </div>""", unsafe_allow_html=True)
 
@@ -1755,11 +2176,11 @@ with tab2:
                           else "🟢 Bullish — Put writers dominate" if pcr_tab2 > 1.2
                           else "🔴 Bearish — Call writers dominate" if pcr_tab2 < 0.8
                           else "🟡 Neutral — Balanced positioning")
-            pcr_clr = "#00ff88" if pcr_tab2 > 1.2 else "#ff4466" if pcr_tab2 < 0.8 else "#ffd700"
+            pcr_clr = "#4caf82" if pcr_tab2 > 1.2 else "#d95f5f" if pcr_tab2 < 0.8 else "#c9a84c"
             st.markdown(f"""
-            <div style="background:#111827;border:1px solid #1e2d45;border-radius:8px;
+            <div style="background:#16161b;border:1px solid #2a2a35;border-radius:8px;
                         padding:10px 12px;text-align:center;margin-top:-8px">
-                <div style="font-size:12px;color:{pcr_clr};font-family:JetBrains Mono;
+                <div style="font-size:12px;color:{pcr_clr};font-family:DM Mono;
                             font-weight:600;line-height:1.5">{pcr_interp}</div>
             </div>""", unsafe_allow_html=True)
 
@@ -1787,14 +2208,14 @@ with tab2:
 
         def _style_oc_row(row):
             if abs(row["Strike"] - spot_price) < spot_price * 0.005:
-                return ["background-color: rgba(0,212,255,0.14); font-weight:bold"] * len(row)
+                return ["background-color: rgba(201,168,76,0.10); font-weight:bold"] * len(row)
             return [""] * len(row)
 
         def _color_oi_chg(val):
             try:
                 v = float(val)
-                if v > 0:  return "color: #ff4466"   # OI building up = more shorts/sellers
-                if v < 0:  return "color: #00ff88"   # OI falling = covering
+                if v > 0:  return "color: #d95f5f"   # OI building up = more shorts/sellers
+                if v < 0:  return "color: #4caf82"   # OI falling = covering
             except Exception:
                 pass
             return ""
@@ -1851,12 +2272,12 @@ with tab2:
         # ── Legend ────────────────────────────────────────────────────────
         st.markdown("""
         <div style='display:flex;gap:24px;flex-wrap:wrap;padding:10px 0 4px;
-                    font-family:JetBrains Mono;font-size:11px;color:#64748b'>
-            <span><span style='color:#00d4ff'>━</span> ATM row highlighted</span>
-            <span><span style='color:#ff4466'>↑ CE ΔOI</span> = Short buildup at strike (resistance increasing)</span>
-            <span><span style='color:#00ff88'>↓ CE ΔOI</span> = Short covering (resistance weakening)</span>
-            <span><span style='color:#ff4466'>Max CE Strike</span> = strongest resistance</span>
-            <span><span style='color:#00ff88'>Max PE Strike</span> = strongest support</span>
+                    font-family:DM Mono;font-size:11px;color:#6b6760'>
+            <span><span style='color:#c9a84c'>━</span> ATM row highlighted</span>
+            <span><span style='color:#d95f5f'>↑ CE ΔOI</span> = Short buildup at strike (resistance increasing)</span>
+            <span><span style='color:#4caf82'>↓ CE ΔOI</span> = Short covering (resistance weakening)</span>
+            <span><span style='color:#d95f5f'>Max CE Strike</span> = strongest resistance</span>
+            <span><span style='color:#4caf82'>Max PE Strike</span> = strongest support</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1892,7 +2313,7 @@ with tab4:
 with tab5:
     st.markdown("""
     <div style='padding:6px 0 18px'>
-        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase'>
+        <span style='font-family:DM Mono;font-size:11px;color:#6b6760;letter-spacing:2px;text-transform:uppercase'>
         Cash equity stocks only · No futures or options · Refreshes every 2 min
         </span>
     </div>""", unsafe_allow_html=True)
@@ -1912,8 +2333,8 @@ with tab5:
         hm_scores.append(summ["score"])
         hm_changes.append(summ["avg_change"])
         adv, dec = summ["advancing"], summ["declining"]
-        color = ("#00ff88" if summ["bias"] == "Bullish"
-                 else "#ff4466" if summ["bias"] == "Bearish" else "#ffd700")
+        color = ("#4caf82" if summ["bias"] == "Bullish"
+                 else "#d95f5f" if summ["bias"] == "Bearish" else "#c9a84c")
         hm_colors.append(color)
         hm_text.append(
             f"<b>{icon} {sname}</b><br>Bias: {summ['bias']}<br>Score: {summ['score']}/100<br>"
@@ -1923,21 +2344,21 @@ with tab5:
     fig_hm = go.Figure()
     fig_hm.add_trace(go.Bar(x=hm_labels, y=hm_scores, marker_color=hm_colors,
         text=[f"{s}/100" for s in hm_scores], textposition="outside",
-        textfont=dict(family="JetBrains Mono", size=11, color="#e2e8f0"),
+        textfont=dict(family="DM Mono", size=11, color="#b0aa9e"),
         hovertext=hm_text, hoverinfo="text", width=0.55))
     fig_hm.add_trace(go.Scatter(x=hm_labels, y=hm_changes, mode="markers+text",
-        marker=dict(size=14, color=["#00ff88" if c >= 0 else "#ff4466" for c in hm_changes],
-                    symbol="diamond", line=dict(width=1, color="#0a0e1a")),
+        marker=dict(size=14, color=["#4caf82" if c >= 0 else "#d95f5f" for c in hm_changes],
+                    symbol="diamond", line=dict(width=1, color="#0c0c0e")),
         text=[f"{c:+.2f}%" for c in hm_changes], textposition="top center",
-        textfont=dict(family="JetBrains Mono", size=10),
+        textfont=dict(family="DM Mono", size=10),
         yaxis="y2", name="Avg Price Change%", hoverinfo="skip"))
     fig_hm.update_layout(
-        height=340, paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0"), showlegend=False,
+        height=340, paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+        font=dict(family="DM Mono", color="#b0aa9e"), showlegend=False,
         margin=dict(l=40, r=40, t=30, b=60),
-        yaxis=dict(title="Buildup Score", range=[0, 110], gridcolor="#1e2d45", zeroline=False, tickfont=dict(size=10)),
+        yaxis=dict(title="Buildup Score", range=[0, 110], gridcolor="#2a2a35", zeroline=False, tickfont=dict(size=10)),
         yaxis2=dict(title="Avg Chg%", overlaying="y", side="right", range=[-5, 5],
-                    zeroline=True, zerolinecolor="#1e2d45", tickfont=dict(size=10), showgrid=False),
+                    zeroline=True, zerolinecolor="#2a2a35", tickfont=dict(size=10), showgrid=False),
         xaxis=dict(tickfont=dict(size=11)), bargap=0.35)
     st.plotly_chart(fig_hm, use_container_width=True)
 
@@ -1954,28 +2375,28 @@ with tab5:
 
     sdf = fetch_sector_data(chosen_sector)
     summ = all_summaries[chosen_sector]
-    bias_color = "#00ff88" if summ["bias"] == "Bullish" else "#ff4466" if summ["bias"] == "Bearish" else "#ffd700"
+    bias_color = "#4caf82" if summ["bias"] == "Bullish" else "#d95f5f" if summ["bias"] == "Bearish" else "#c9a84c"
     vol_fmt = (f"{summ['total_volume']/1_000_000:.1f}M" if summ["total_volume"] >= 1_000_000
                else f"{summ['total_volume']/1_000:.0f}K")
 
     st.markdown(f"""
-    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                border:1px solid #1e2d45;border-left:3px solid {bias_color};
+    <div style='background:linear-gradient(135deg,#16161b 0%,#111115 100%);
+                border:1px solid #2a2a35;border-left:3px solid {bias_color};
                 border-radius:10px;padding:14px 20px;margin:8px 0 16px;
                 display:flex;gap:40px;flex-wrap:wrap;align-items:center'>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SECTOR BIAS</div>
-             <div style='font-size:22px;font-weight:700;color:{bias_color};font-family:JetBrains Mono'>{summ["bias"].upper()}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SCORE</div>
-             <div style='font-size:22px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{summ["score"]}/100</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>ADVANCING / DECLINING</div>
-             <div style='font-size:18px;font-weight:700;font-family:JetBrains Mono'>
-                 <span style='color:#00ff88'>▲ {summ["advancing"]}</span> &nbsp;/&nbsp;
-                 <span style='color:#ff4466'>▼ {summ["declining"]}</span></div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>AVG CHANGE</div>
-             <div style='font-size:18px;font-weight:700;color:{"#00ff88" if summ["avg_change"]>=0 else "#ff4466"};font-family:JetBrains Mono'>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>SECTOR BIAS</div>
+             <div style='font-size:22px;font-weight:700;color:{bias_color};font-family:DM Mono'>{summ["bias"].upper()}</div></div>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>SCORE</div>
+             <div style='font-size:22px;font-weight:700;color:#c9a84c;font-family:DM Mono'>{summ["score"]}/100</div></div>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>ADVANCING / DECLINING</div>
+             <div style='font-size:18px;font-weight:700;font-family:DM Mono'>
+                 <span style='color:#4caf82'>▲ {summ["advancing"]}</span> &nbsp;/&nbsp;
+                 <span style='color:#d95f5f'>▼ {summ["declining"]}</span></div></div>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>AVG CHANGE</div>
+             <div style='font-size:18px;font-weight:700;color:{"#4caf82" if summ["avg_change"]>=0 else "#d95f5f"};font-family:DM Mono'>
                  {summ["avg_change"]:+.2f}%</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>TOTAL VOLUME</div>
-             <div style='font-size:18px;font-weight:700;color:#e2e8f0;font-family:JetBrains Mono'>{vol_fmt}</div></div>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>TOTAL VOLUME</div>
+             <div style='font-size:18px;font-weight:700;color:#e8e4dc;font-family:DM Mono'>{vol_fmt}</div></div>
     </div>""", unsafe_allow_html=True)
 
     if not sdf.empty:
@@ -1985,8 +2406,8 @@ with tab5:
         elif sort_by == "Buy% (Most Bought)":    sdf = sdf.sort_values("Buy%", ascending=False)
         sdf = sdf.reset_index(drop=True)
 
-        buildup_colors = {"Long Buildup":"#00ff88","Short Covering":"#00d4ff",
-                          "Neutral":"#64748b","Long Unwinding":"#ffa500","Short Buildup":"#ff4466"}
+        buildup_colors = {"Long Buildup":"#4caf82","Short Covering":"#c9a84c",
+                          "Neutral":"#6b6760","Long Unwinding":"#e0a030","Short Buildup":"#d95f5f"}
         bar_colors = [buildup_colors.get(b, "#64748b") for b in sdf["Buildup"]]
         bar_text   = [f"{row.Symbol}  {row['Change%']:+.2f}%  Vol:{row.Vol_Norm:.0f}%  {row.Buildup}"
                       for _, row in sdf.iterrows()]
@@ -1995,29 +2416,29 @@ with tab5:
         fig_bars.add_trace(go.Bar(y=sdf["Symbol"], x=sdf["Vol_Norm"], orientation="h",
             marker_color=bar_colors, marker_opacity=0.85, name="Relative Volume",
             text=[f"{v:.0f}%" for v in sdf["Vol_Norm"]], textposition="inside",
-            textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
+            textfont=dict(family="DM Mono", size=10, color="#0c0c0e"),
             hovertext=bar_text, hoverinfo="text", width=0.55))
         fig_bars.add_trace(go.Scatter(y=sdf["Symbol"], x=[50] * len(sdf), mode="text",
             text=[f"{c:+.2f}%" for c in sdf["Change%"]],
-            textfont=dict(family="JetBrains Mono", size=10,
-                          color=["#00ff88" if c >= 0 else "#ff4466" for c in sdf["Change%"]]),
+            textfont=dict(family="DM Mono", size=10,
+                          color=["#4caf82" if c >= 0 else "#d95f5f" for c in sdf["Change%"]]),
             textposition="middle right", hoverinfo="skip", showlegend=False))
-        fig_bars.update_layout(height=max(380, len(sdf) * 38), paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-            font=dict(family="JetBrains Mono", color="#e2e8f0"), showlegend=False,
+        fig_bars.update_layout(height=max(380, len(sdf) * 38), paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+            font=dict(family="DM Mono", color="#b0aa9e"), showlegend=False,
             margin=dict(l=100, r=80, t=20, b=40),
-            xaxis=dict(title="Relative Volume %", range=[0, 115], gridcolor="#1e2d45",
+            xaxis=dict(title="Relative Volume %", range=[0, 115], gridcolor="#2a2a35",
                        zeroline=False, tickfont=dict(size=10)),
-            yaxis=dict(autorange="reversed", tickfont=dict(size=11), gridcolor="#1e2d45"), bargap=0.25)
-        fig_bars.add_vline(x=50, line_dash="dot", line_color="#1e2d45", line_width=1)
+            yaxis=dict(autorange="reversed", tickfont=dict(size=11), gridcolor="#2a2a35"), bargap=0.25)
+        fig_bars.add_vline(x=50, line_dash="dot", line_color="#2a2a35", line_width=1)
         st.plotly_chart(fig_bars, use_container_width=True)
 
         st.markdown("""
-        <div style='display:flex;gap:18px;flex-wrap:wrap;padding:8px 0;font-family:JetBrains Mono;font-size:11px'>
-            <span><span style='color:#00ff88'>■</span> Long Buildup — Price ↑ + Volume ↑</span>
-            <span><span style='color:#00d4ff'>■</span> Short Covering — Price ↑ + OI ↓</span>
-            <span><span style='color:#64748b'>■</span> Neutral</span>
-            <span><span style='color:#ffa500'>■</span> Long Unwinding — Price ↓ + OI ↓</span>
-            <span><span style='color:#ff4466'>■</span> Short Buildup — Price ↓ + Volume ↑</span>
+        <div style='display:flex;gap:18px;flex-wrap:wrap;padding:8px 0;font-family:DM Mono;font-size:11px'>
+            <span><span style='color:#4caf82'>■</span> Long Buildup — Price ↑ + Volume ↑</span>
+            <span><span style='color:#c9a84c'>■</span> Short Covering — Price ↑ + OI ↓</span>
+            <span><span style='color:#6b6760'>■</span> Neutral</span>
+            <span><span style='color:#e0a030'>■</span> Long Unwinding — Price ↓ + OI ↓</span>
+            <span><span style='color:#d95f5f'>■</span> Short Buildup — Price ↓ + Volume ↑</span>
         </div>""", unsafe_allow_html=True)
 
         st.markdown('<div class="section-header">ORDER BOOK IMBALANCE — BUY vs SELL PRESSURE</div>', unsafe_allow_html=True)
@@ -2025,24 +2446,24 @@ with tab5:
         if not ob_df.empty:
             fig_ob = go.Figure()
             fig_ob.add_trace(go.Bar(name="Buy Qty", y=ob_df["Symbol"], x=ob_df["Buy%"],
-                orientation="h", marker_color="#00ff88", marker_opacity=0.8,
+                orientation="h", marker_color="#4caf82", marker_opacity=0.8,
                 text=[f"Buy {b:.0f}%" for b in ob_df["Buy%"]], textposition="inside",
-                textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
+                textfont=dict(family="DM Mono", size=10, color="#0c0c0e"),
                 hovertemplate="%{y}: Buy %{x:.1f}%<extra></extra>"))
             fig_ob.add_trace(go.Bar(name="Sell Qty", y=ob_df["Symbol"], x=100 - ob_df["Buy%"],
-                orientation="h", marker_color="#ff4466", marker_opacity=0.8,
+                orientation="h", marker_color="#d95f5f", marker_opacity=0.8,
                 text=[f"Sell {100-b:.0f}%" for b in ob_df["Buy%"]], textposition="inside",
-                textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
+                textfont=dict(family="DM Mono", size=10, color="#0c0c0e"),
                 hovertemplate="%{y}: Sell %{x:.1f}%<extra></extra>"))
             fig_ob.update_layout(barmode="stack", height=max(320, len(ob_df) * 36),
-                paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                font=dict(family="JetBrains Mono", color="#e2e8f0"),
+                paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+                font=dict(family="DM Mono", color="#b0aa9e"),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 margin=dict(l=100, r=40, t=30, b=40),
-                xaxis=dict(title="Order Book Split %", range=[0, 100], gridcolor="#1e2d45",
+                xaxis=dict(title="Order Book Split %", range=[0, 100], gridcolor="#2a2a35",
                            ticksuffix="%", tickfont=dict(size=10)),
-                yaxis=dict(autorange="reversed", tickfont=dict(size=11), gridcolor="#1e2d45"))
-            fig_ob.add_vline(x=50, line_dash="dot", line_color="#64748b", line_width=1)
+                yaxis=dict(autorange="reversed", tickfont=dict(size=11), gridcolor="#2a2a35"))
+            fig_ob.add_vline(x=50, line_dash="dot", line_color="#6b6760", line_width=1)
             st.plotly_chart(fig_ob, use_container_width=True)
         else:
             st.info("Order book data not available — market may be closed.")
@@ -2053,8 +2474,8 @@ with tab5:
                 lambda v: f"{v/1_000_000:.2f}M" if v >= 1_000_000 else f"{v/1_000:.0f}K" if v >= 1_000 else str(v))
             st.dataframe(
                 display_df.style
-                .applymap(lambda v: "color: #00ff88" if isinstance(v, float) and v > 0
-                          else "color: #ff4466" if isinstance(v, float) and v < 0 else "",
+                .applymap(lambda v: "color: #4caf82" if isinstance(v, float) and v > 0
+                          else "color: #d95f5f" if isinstance(v, float) and v < 0 else "",
                           subset=["Change%"])
                 .format({"LTP": "{:.2f}", "Change%": "{:+.2f}%", "Buy%": "{:.1f}%"}),
                 use_container_width=True)
@@ -2067,9 +2488,9 @@ with tab5:
 # ─────────────────────────────────────────────
 with tab6:
     mkt = get_market_status()
-    status_color  = "#00ff88" if mkt["is_open"] else "#ff4466"
-    status_bg     = "rgba(0,255,136,0.07)" if mkt["is_open"] else "rgba(255,68,102,0.07)"
-    status_border = "rgba(0,255,136,0.25)" if mkt["is_open"] else "rgba(255,68,102,0.25)"
+    status_color  = "#4caf82" if mkt["is_open"] else "#d95f5f"
+    status_bg     = "rgba(76,175,130,0.07)" if mkt["is_open"] else "rgba(217,95,95,0.07)"
+    status_border = "rgba(76,175,130,0.25)" if mkt["is_open"] else "rgba(255,68,102,0.25)"
     data_as_of    = (
         f"Intraday live data · {datetime.now().strftime('%d %b %Y %H:%M IST')}"
         if mkt["is_open"]
@@ -2080,12 +2501,12 @@ with tab6:
     <div style='background:{status_bg};border:1px solid {status_border};
                 border-radius:10px;padding:10px 18px;margin-bottom:14px;
                 display:flex;align-items:center;gap:18px;flex-wrap:wrap'>
-        <span style='font-size:15px;font-weight:700;color:{status_color};font-family:JetBrains Mono'>{mkt["label"]}</span>
-        <span style='font-size:11px;color:#e2e8f0;font-family:JetBrains Mono'>{mkt["note"]}</span>
-        <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono;margin-left:auto'>{data_as_of}</span>
+        <span style='font-size:15px;font-weight:700;color:{status_color};font-family:DM Mono'>{mkt["label"]}</span>
+        <span style='font-size:11px;color:#e8e4dc;font-family:DM Mono'>{mkt["note"]}</span>
+        <span style='font-size:10px;color:#6b6760;font-family:DM Mono;margin-left:auto'>{data_as_of}</span>
     </div>
     <div style='padding:2px 0 12px'>
-        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase'>
+        <span style='font-family:DM Mono;font-size:11px;color:#6b6760;letter-spacing:2px;text-transform:uppercase'>
         Cash equity · EMA 20 · EMA 50 · SMA 50 · SMA 100 · Fresh crossovers only · Not F&amp;O
         </span>
     </div>""", unsafe_allow_html=True)
@@ -2146,19 +2567,19 @@ with tab6:
     fresh_count = sum(1 for r in filtered if r["freshest_bars"] <= 3)
 
     st.markdown(f"""
-    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                border:1px solid #1e2d45;border-radius:10px;
+    <div style='background:linear-gradient(135deg,#16161b 0%,#111115 100%);
+                border:1px solid #2a2a35;border-radius:10px;
                 padding:14px 20px;margin:8px 0 20px;
                 display:flex;gap:40px;flex-wrap:wrap;align-items:center'>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SCRIPS WITH CROSSOVERS</div>
-             <div style='font-size:28px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{len(filtered)}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>BULLISH CROSSOVERS</div>
-             <div style='font-size:24px;font-weight:700;color:#00ff88;font-family:JetBrains Mono'>▲ {bull_count}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>BEARISH CROSSOVERS</div>
-             <div style='font-size:24px;font-weight:700;color:#ff4466;font-family:JetBrains Mono'>▼ {bear_count}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>VERY FRESH (≤3 bars)</div>
-             <div style='font-size:24px;font-weight:700;color:#ffd700;font-family:JetBrains Mono'>⚡ {fresh_count}</div></div>
-        <div style='margin-left:auto;font-family:JetBrains Mono;font-size:10px;color:#64748b;text-align:right'>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>SCRIPS WITH CROSSOVERS</div>
+             <div style='font-size:28px;font-weight:700;color:#c9a84c;font-family:DM Mono'>{len(filtered)}</div></div>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>BULLISH CROSSOVERS</div>
+             <div style='font-size:24px;font-weight:700;color:#4caf82;font-family:DM Mono'>▲ {bull_count}</div></div>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>BEARISH CROSSOVERS</div>
+             <div style='font-size:24px;font-weight:700;color:#d95f5f;font-family:DM Mono'>▼ {bear_count}</div></div>
+        <div><div style='font-size:10px;color:#6b6760;font-family:DM Mono;letter-spacing:1px'>VERY FRESH (≤3 bars)</div>
+             <div style='font-size:24px;font-weight:700;color:#c9a84c;font-family:DM Mono'>⚡ {fresh_count}</div></div>
+        <div style='margin-left:auto;font-family:DM Mono;font-size:10px;color:#6b6760;text-align:right'>
             Sector: {SECTOR_ICONS.get(scan_sector,"")} {scan_sector}<br>
             {mkt["label"]} · {mkt["last_close"].strftime("%d %b %Y") if not mkt["is_open"] else datetime.now().strftime("%d %b %Y %H:%M IST")}
         </div>
@@ -2172,7 +2593,7 @@ with tab6:
         ov_bars   = [r["freshest_bars"] for r in filtered]
         ov_chg    = [r["change_pct"]    for r in filtered]
         ov_bias   = [r["bias"]          for r in filtered]
-        ov_colors = ["#00ff88" if b == "Bullish" else "#ff4466" for b in ov_bias]
+        ov_colors = ["#4caf82" if b == "Bullish" else "#d95f5f" for b in ov_bias]
         ov_hover  = [
             f"<b>{r['symbol']}</b><br>Bias: {r['bias']}<br>LTP: ₹{r['ltp']:,.2f}<br>"
             f"Change: {r['change_pct']:+.2f}%<br>Freshest crossover: {r['freshest_bars']} bar(s) ago<br>"
@@ -2183,21 +2604,21 @@ with tab6:
         fig_ov.add_trace(go.Bar(x=ov_syms, y=[freshness + 1 - b for b in ov_bars],
             marker_color=ov_colors, marker_opacity=0.85,
             text=[f"{b}b ago" for b in ov_bars], textposition="outside",
-            textfont=dict(family="JetBrains Mono", size=10, color="#e2e8f0"),
+            textfont=dict(family="DM Mono", size=10, color="#b0aa9e"),
             hovertext=ov_hover, hoverinfo="text", width=0.55))
         fig_ov.add_trace(go.Scatter(x=ov_syms, y=ov_chg, mode="markers+text",
-            marker=dict(size=10, color=["#00ff88" if c >= 0 else "#ff4466" for c in ov_chg],
-                        symbol="diamond", line=dict(width=1, color="#0a0e1a")),
+            marker=dict(size=10, color=["#4caf82" if c >= 0 else "#d95f5f" for c in ov_chg],
+                        symbol="diamond", line=dict(width=1, color="#0c0c0e")),
             text=[f"{c:+.2f}%" for c in ov_chg], textposition="top center",
-            textfont=dict(family="JetBrains Mono", size=9),
+            textfont=dict(family="DM Mono", size=9),
             yaxis="y2", name="Day Change%", hoverinfo="skip"))
-        fig_ov.update_layout(height=310, paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-            font=dict(family="JetBrains Mono", color="#e2e8f0"), showlegend=False,
+        fig_ov.update_layout(height=310, paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+            font=dict(family="DM Mono", color="#b0aa9e"), showlegend=False,
             margin=dict(l=40, r=60, t=30, b=60), xaxis=dict(tickfont=dict(size=11), tickangle=-30),
-            yaxis=dict(title="Freshness Score", gridcolor="#1e2d45", zeroline=False,
+            yaxis=dict(title="Freshness Score", gridcolor="#2a2a35", zeroline=False,
                        tickfont=dict(size=10), range=[0, freshness + 2]),
             yaxis2=dict(title="Day Chg%", overlaying="y", side="right", zeroline=True,
-                        zerolinecolor="#1e2d45", showgrid=False, tickfont=dict(size=10), range=[-6, 6]))
+                        zerolinecolor="#2a2a35", showgrid=False, tickfont=dict(size=10), range=[-6, 6]))
         st.plotly_chart(fig_ov, use_container_width=True)
 
         st.markdown('<div class="section-header">SCRIP DETAIL — PRICE + MA CHART</div>', unsafe_allow_html=True)
@@ -2210,42 +2631,42 @@ with tab6:
                 if idx >= len(filtered): break
                 r = filtered[idx]
                 df_s = r["df"]
-                bias_col = "#00ff88" if r["bias"] == "Bullish" else "#ff4466"
-                chg_col  = "#00ff88" if r["change_pct"] >= 0 else "#ff4466"
+                bias_col = "#4caf82" if r["bias"] == "Bullish" else "#d95f5f"
+                chg_col  = "#4caf82" if r["change_pct"] >= 0 else "#d95f5f"
                 with card_col:
                     cx_badges = "".join(
-                        f"<span style='background:{'rgba(0,255,136,0.12)' if cx['direction']=='Bullish' else 'rgba(255,68,102,0.12)'};"
-                        f"color:{'#00ff88' if cx['direction']=='Bullish' else '#ff4466'};"
-                        f"border:1px solid {'rgba(0,255,136,0.3)' if cx['direction']=='Bullish' else 'rgba(255,68,102,0.3)'};"
-                        f"border-radius:5px;padding:2px 8px;font-size:10px;font-family:JetBrains Mono;"
+                        f"<span style='background:{'rgba(76,175,130,0.10)' if cx['direction']=='Bullish' else 'rgba(217,95,95,0.10)'};"
+                        f"color:{'#4caf82' if cx['direction']=='Bullish' else '#d95f5f'};"
+                        f"border:1px solid {'rgba(76,175,130,0.25)' if cx['direction']=='Bullish' else 'rgba(217,95,95,0.25)'};"
+                        f"border-radius:5px;padding:2px 8px;font-size:10px;font-family:DM Mono;"
                         f"margin:2px;display:inline-block'>"
                         f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']} · {cx['bars_ago']}b ago</span>"
                         for cx in r["crossovers"]
                     )
                     st.markdown(f"""
-                    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                                border:1px solid #1e2d45;border-left:3px solid {bias_col};
+                    <div style='background:linear-gradient(135deg,#16161b 0%,#111115 100%);
+                                border:1px solid #2a2a35;border-left:3px solid {bias_col};
                                 border-radius:10px;padding:14px 16px;margin-bottom:4px'>
                         <div style='display:flex;justify-content:space-between;align-items:flex-start'>
                             <div>
-                                <span style='font-size:18px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{r["symbol"]}</span>
-                                <span style='font-size:11px;color:#64748b;font-family:JetBrains Mono;margin-left:10px'>₹{r["ltp"]:,.2f}</span>
+                                <span style='font-size:18px;font-weight:700;color:#c9a84c;font-family:DM Mono'>{r["symbol"]}</span>
+                                <span style='font-size:11px;color:#6b6760;font-family:DM Mono;margin-left:10px'>₹{r["ltp"]:,.2f}</span>
                             </div>
                             <div style='text-align:right'>
-                                <span style='font-size:13px;font-weight:700;color:{chg_col};font-family:JetBrains Mono'>
+                                <span style='font-size:13px;font-weight:700;color:{chg_col};font-family:DM Mono'>
                                     {"▲" if r["change_pct"]>=0 else "▼"} {abs(r["change_pct"]):.2f}%
                                 </span><br>
-                                <span style='font-size:11px;font-weight:600;color:{bias_col};font-family:JetBrains Mono'>
+                                <span style='font-size:11px;font-weight:600;color:{bias_col};font-family:DM Mono'>
                                     {"🟢" if r["bias"]=="Bullish" else "🔴"} {r["bias"].upper()}
                                 </span>
                             </div>
                         </div>
                         <div style='margin-top:8px'>{cx_badges}</div>
                         <div style='margin-top:8px;display:flex;gap:16px;flex-wrap:wrap'>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>EMA20 <span style='color:#ffd700'>₹{r["ema20"]:,.2f}</span></span>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>EMA50 <span style='color:#ff8c00'>₹{r["ema50"]:,.2f}</span></span>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>SMA50 <span style='color:#00d4ff'>₹{r["sma50"]:,.2f}</span></span>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>SMA100 <span style='color:#bf5fff'>₹{r["sma100"]:,.2f}</span></span>
+                            <span style='font-size:10px;color:#6b6760;font-family:DM Mono'>EMA20 <span style='color:#c9a84c'>₹{r["ema20"]:,.2f}</span></span>
+                            <span style='font-size:10px;color:#6b6760;font-family:DM Mono'>EMA50 <span style='color:#8a6e2f'>₹{r["ema50"]:,.2f}</span></span>
+                            <span style='font-size:10px;color:#6b6760;font-family:DM Mono'>SMA50 <span style='color:#c9a84c'>₹{r["sma50"]:,.2f}</span></span>
+                            <span style='font-size:10px;color:#6b6760;font-family:DM Mono'>SMA100 <span style='color:#6b6760'>₹{r["sma100"]:,.2f}</span></span>
                         </div>
                     </div>""", unsafe_allow_html=True)
 
@@ -2255,12 +2676,12 @@ with tab6:
                         fig_mini.add_trace(go.Candlestick(
                             x=chart_df["Date"], open=chart_df["Open"], high=chart_df["High"],
                             low=chart_df["Low"], close=chart_df["Close"], name="Price",
-                            increasing_line_color="#00ff88", decreasing_line_color="#ff4466",
+                            increasing_line_color="#4caf82", decreasing_line_color="#d95f5f",
                             increasing_fillcolor="rgba(0,255,136,0.6)",
                             decreasing_fillcolor="rgba(255,68,102,0.6)", showlegend=False))
                         for ma_col, ma_color, ma_name in [
-                            ("EMA20","#ffd700","EMA 20"),("EMA50","#ff8c00","EMA 50"),
-                            ("SMA50","#00d4ff","SMA 50"),("SMA100","#bf5fff","SMA 100"),
+                            ("EMA20","#c9a84c","EMA 20"),("EMA50","#ff8c00","EMA 50"),
+                            ("SMA50","#b0aa9e","SMA 50"),("SMA100","#6b6760","SMA 100"),
                         ]:
                             if ma_col in chart_df.columns:
                                 fig_mini.add_trace(go.Scatter(x=chart_df["Date"], y=chart_df[ma_col],
@@ -2269,16 +2690,16 @@ with tab6:
                             if cx.get("date") is not None:
                                 fig_mini.add_vline(x=cx["date"].timestamp() * 1000,
                                     line_dash="dot",
-                                    line_color="#00ff88" if cx["direction"] == "Bullish" else "#ff4466",
+                                    line_color="#4caf82" if cx["direction"] == "Bullish" else "#d95f5f",
                                     line_width=1.5,
                                     annotation_text=f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']}",
-                                    annotation_font=dict(size=9, color="#e2e8f0", family="JetBrains Mono"),
+                                    annotation_font=dict(size=9, color="#b0aa9e", family="DM Mono"),
                                     annotation_position="top left")
-                        fig_mini.update_layout(height=280, paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                            font=dict(family="JetBrains Mono", color="#e2e8f0", size=9),
+                        fig_mini.update_layout(height=280, paper_bgcolor="#0c0c0e", plot_bgcolor="#111115",
+                            font=dict(family="DM Mono", color="#b0aa9e", size=9),
                             margin=dict(l=40, r=10, t=10, b=30),
-                            xaxis=dict(rangeslider_visible=False, gridcolor="#1e2d45", tickfont=dict(size=8)),
-                            yaxis=dict(gridcolor="#1e2d45", tickfont=dict(size=8), tickprefix="₹"),
+                            xaxis=dict(rangeslider_visible=False, gridcolor="#2a2a35", tickfont=dict(size=8)),
+                            yaxis=dict(gridcolor="#2a2a35", tickfont=dict(size=8), tickprefix="₹"),
                             legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0,
                                         font=dict(size=8)), showlegend=True)
                         st.plotly_chart(fig_mini, use_container_width=True,
@@ -2298,11 +2719,11 @@ with tab6:
         tdf = pd.DataFrame(table_rows)
         if not tdf.empty:
             def colour_bias(val):
-                if val == "Bullish": return "color: #00ff88; font-weight:600"
-                if val == "Bearish": return "color: #ff4466; font-weight:600"
+                if val == "Bullish": return "color: #4caf82; font-weight:600"
+                if val == "Bearish": return "color: #d95f5f; font-weight:600"
                 return ""
             def colour_chg(val):
-                try: return "color: #00ff88" if float(val) >= 0 else "color: #ff4466"
+                try: return "color: #4caf82" if float(val) >= 0 else "color: #d95f5f"
                 except: return ""
             st.dataframe(
                 tdf.style.applymap(colour_bias, subset=["Bias"]).applymap(colour_chg, subset=["Day Chg%"])
@@ -2312,14 +2733,14 @@ with tab6:
 
         st.markdown("""
         <div style='display:flex;gap:24px;flex-wrap:wrap;padding:10px 0 4px;
-                    font-family:JetBrains Mono;font-size:11px;color:#64748b'>
-            <span><span style='color:#ffd700'>━</span> EMA 20 &nbsp;·&nbsp;
-                  <span style='color:#ff8c00'>━</span> EMA 50 &nbsp;·&nbsp;
-                  <span style='color:#00d4ff'>━</span> SMA 50 &nbsp;·&nbsp;
-                  <span style='color:#bf5fff'>━</span> SMA 100</span>
+                    font-family:DM Mono;font-size:11px;color:#6b6760'>
+            <span><span style='color:#c9a84c'>━</span> EMA 20 &nbsp;·&nbsp;
+                  <span style='color:#8a6e2f'>━</span> EMA 50 &nbsp;·&nbsp;
+                  <span style='color:#c9a84c'>━</span> SMA 50 &nbsp;·&nbsp;
+                  <span style='color:#6b6760'>━</span> SMA 100</span>
             <span>▲ = Bullish crossover &nbsp;·&nbsp; ▼ = Bearish crossover &nbsp;·&nbsp; ⚡ Fresh = ≤3 bars</span>
         </div>
-        <div style='font-family:JetBrains Mono;font-size:10px;color:#3d4d5e;padding-top:4px'>
+        <div style='font-family:DM Mono;font-size:10px;color:#3d4d5e;padding-top:4px'>
             ⚠️ For educational purposes only. Not financial advice. Always do your own research.
         </div>""", unsafe_allow_html=True)
 
@@ -2329,7 +2750,7 @@ with tab6:
 # ─────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
-<div style='text-align:center; color:#64748b; font-size:11px; font-family: JetBrains Mono; padding: 10px 0;'>
+<div style='text-align:center; color:#6b6760; font-size:11px; font-family: DM Mono; padding: 10px 0;'>
 Nifty Analysis Bot · Built with Streamlit + NSE India API + pandas · For educational purposes only<br>
 ⚠️ Not financial advice. Always verify signals with your own research before trading.
 </div>
