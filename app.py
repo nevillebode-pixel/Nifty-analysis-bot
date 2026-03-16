@@ -503,21 +503,47 @@ def calc_sma(series: pd.Series, window: int) -> pd.Series:
 
 
 def calc_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    high, low, close = df["High"], df["Low"], df["Close"]
+    """
+    ADX calculation that keeps a consistent pandas index throughout.
+    numpy.where() strips the index — we always wrap results back into
+    pd.Series with reset_index so concat/ewm work without NaN corruption.
+    """
+    orig_index = df.index
+    # Work on integer-indexed copies so numpy/pandas align perfectly
+    high  = df["High"].reset_index(drop=True).astype(float)
+    low   = df["Low"].reset_index(drop=True).astype(float)
+    close = df["Close"].reset_index(drop=True).astype(float)
+
     up_move   = high.diff()
-    down_move = -low.diff()
-    plus_dm   = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-    minus_dm  = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    down_move = -(low.diff())
+
+    plus_dm  = pd.Series(
+        np.where((up_move > down_move) & (up_move > 0), up_move, 0.0),
+        dtype=float,
+    )
+    minus_dm = pd.Series(
+        np.where((down_move > up_move) & (down_move > 0), down_move, 0.0),
+        dtype=float,
+    )
+
     tr = pd.concat([
         high - low,
-        (high - close.shift()).abs(),
-        (low  - close.shift()).abs(),
+        (high - close.shift(1)).abs(),
+        (low  - close.shift(1)).abs(),
     ], axis=1).max(axis=1)
-    atr   = pd.Series(tr).ewm(alpha=1/period, adjust=False).mean()
-    pdi   = 100 * pd.Series(plus_dm).ewm(alpha=1/period, adjust=False).mean() / atr
-    mdi   = 100 * pd.Series(minus_dm).ewm(alpha=1/period, adjust=False).mean() / atr
-    dx    = (100 * (pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan))
-    return dx.ewm(alpha=1/period, adjust=False).mean()
+
+    atr      = tr.ewm(alpha=1/period, min_periods=1, adjust=False).mean()
+    safe_atr = atr.replace(0, np.nan)
+    pdi      = 100 * plus_dm.ewm(alpha=1/period, min_periods=1, adjust=False).mean() / safe_atr
+    mdi      = 100 * minus_dm.ewm(alpha=1/period, min_periods=1, adjust=False).mean() / safe_atr
+
+    dx_denom = (pdi + mdi).replace(0, np.nan)
+    dx       = 100 * (pdi - mdi).abs() / dx_denom
+    adx      = dx.ewm(alpha=1/period, min_periods=1, adjust=False).mean()
+
+    # Restore original DataFrame index so .iloc[-1] returns the correct last row
+    adx.index = orig_index
+    return adx.fillna(20.0)   # replace leading NaNs with neutral default
 
 
 def calc_cpr(df: pd.DataFrame):
@@ -1331,8 +1357,8 @@ df_hist = fetch_historical(selected_index, historical_days)
 pcr     = fetch_pcr(selected_index)
 
 # Derive indicators
-rsi_val = calc_rsi(df_hist["Close"]).iloc[-1] if not df_hist.empty else 50.0
-adx_val = calc_adx(df_hist).iloc[-1]          if not df_hist.empty else 20.0
+rsi_val  = safe_float(calc_rsi(df_hist["Close"]).iloc[-1], 50.0)  if not df_hist.empty else 50.0
+adx_val  = safe_float(calc_adx(df_hist).iloc[-1], 20.0)           if not df_hist.empty else 20.0
 cpr_data = calc_cpr(df_hist)
 cpr_width = cpr_data["width_pct"] if cpr_data else 0.2
 
@@ -1368,13 +1394,15 @@ delta_sym  = "▲" if price_pct >= 0 else "▼"
 
 for col, label, value, delta, delta_class in [
     (mc1, "PRICE",      f"₹{spot_price:,.2f}",    f"{delta_sym} {price_pct:+.2f}%",    delta_cls),
-    (mc2, "RSI (14)",   f"{safe_float(rsi_val):.1f}",
-     "Overbought" if rsi_val > 70 else "Oversold" if rsi_val < 30 else "Neutral",
-     "neg" if rsi_val > 70 else "pos" if rsi_val < 30 else ""),
-    (mc3, "ADX",        f"{safe_float(adx_val):.1f}",
-     "Trending" if adx_val > 25 else "Range-bound", "pos" if adx_val > 25 else "neg"),
+    (mc2, "RSI (14)",   f"{safe_float(rsi_val, 50):.1f}",
+     "Overbought" if safe_float(rsi_val, 50) > 70 else "Oversold" if safe_float(rsi_val, 50) < 30 else "Neutral",
+     "neg" if safe_float(rsi_val, 50) > 70 else "pos" if safe_float(rsi_val, 50) < 30 else ""),
+    (mc3, "ADX",        f"{safe_float(adx_val, 20):.1f}",
+     "Trending" if safe_float(adx_val, 20) > 25 else "Range-bound",
+     "pos" if safe_float(adx_val, 20) > 25 else "neg"),
     (mc4, "PCR",        f"{pcr:.3f}",
-     "Bullish bias" if pcr > 1.0 else "Bearish bias", "pos" if pcr > 1.0 else "neg"),
+     "Bullish bias" if pcr > 1.1 else ("Bearish bias" if pcr < 0.9 else "Neutral"),
+     "pos" if pcr > 1.1 else ("neg" if pcr < 0.9 else "")),
     (mc5, "CPR WIDTH",  f"{cpr_width:.3f}%",
      "Narrow" if cpr_width < 0.1 else "Wide", "pos" if cpr_width < 0.15 else "neg"),
     (mc6, "CONFIDENCE", f"{confidence}%",
@@ -1384,7 +1412,8 @@ for col, label, value, delta, delta_class in [
     col.markdown(f"""
     <div class="metric-card">
         <div class="metric-label">{label}</div>
-        <div class="metric-value">{value}</div>
+        <div class="metric-value" style="white-space:nowrap;overflow:hidden;
+             text-overflow:ellipsis;">{value}</div>
         <div class="metric-delta {delta_class}">{delta}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -1784,16 +1813,21 @@ with tab4:
                 unsafe_allow_html=True)
 
     if not df_hist.empty:
-        last_close = df_hist["Close"].iloc[-1]
-        ema13_last = calc_ema(df_hist["Close"], 13).iloc[-1]
-        ema21_last = calc_ema(df_hist["Close"], 21).iloc[-1]
-        sma50_last = calc_sma(df_hist["Close"], 50).iloc[-1]
-        rsi_cur    = calc_rsi(df_hist["Close"]).iloc[-1]
-        adx_cur    = calc_adx(df_hist).iloc[-1]
+        # ── Use LIVE spot price as the current price anchor ──
+        # df_hist last close can be yesterday's EOD; spot_price is the live quote.
+        live_price  = spot_price if spot_price > 0 else df_hist["Close"].iloc[-1]
+        hist_close  = df_hist["Close"].iloc[-1]   # EOD close (for indicator base)
+
+        ema13_last  = calc_ema(df_hist["Close"], 13).iloc[-1]
+        ema21_last  = calc_ema(df_hist["Close"], 21).iloc[-1]
+        sma50_last  = calc_sma(df_hist["Close"], 50).iloc[-1]
+        rsi_cur     = safe_float(calc_rsi(df_hist["Close"]).iloc[-1], 50)
+        adx_cur_raw = calc_adx(df_hist).iloc[-1]
+        adx_cur     = safe_float(adx_cur_raw, 20)
 
         # Trend classification
-        ema_bullish = ema13_last > ema21_last
-        above_sma50 = last_close > sma50_last if not pd.isna(sma50_last) else False
+        ema_bullish = bool(ema13_last > ema21_last) if not (pd.isna(ema13_last) or pd.isna(ema21_last)) else False
+        above_sma50 = bool(live_price > sma50_last) if not pd.isna(sma50_last) else False
         momentum_ok = 40 < rsi_cur < 70
         trending    = adx_cur > 20
 
@@ -1806,36 +1840,51 @@ with tab4:
                        else "#d29922" if "Cautiously" in outlook or "Neutral" in outlook
                        else "#f85149")
 
-        # Simple linear projection
-        recent_returns = df_hist["Close"].pct_change().tail(10)
-        avg_daily_ret  = recent_returns.mean()
-        proj_5d  = last_close * (1 + avg_daily_ret) ** 5
-        proj_10d = last_close * (1 + avg_daily_ret) ** 10
+        # ── Projection using recent momentum, anchored to live price ──
+        recent_returns = df_hist["Close"].pct_change().dropna().tail(10)
+        avg_daily_ret  = float(recent_returns.mean()) if len(recent_returns) > 0 else 0.0
+        # Guard: if avg return is absurd (data gap), clamp it
+        avg_daily_ret  = max(min(avg_daily_ret, 0.05), -0.05)
 
+        proj_5d  = live_price * (1 + avg_daily_ret) ** 5
+        proj_10d = live_price * (1 + avg_daily_ret) ** 10
+
+        # ── Metric cards ──
         fc1, fc2, fc3, fc4 = st.columns(4)
-        for col, label, val, delta_v in [
-            (fc1, "Current Close", f"₹{last_close:,.2f}", ""),
-            (fc2, "5-Day Projection", f"₹{proj_5d:,.2f}",
-             f"{((proj_5d/last_close)-1)*100:+.2f}%"),
-            (fc3, "10-Day Projection", f"₹{proj_10d:,.2f}",
-             f"{((proj_10d/last_close)-1)*100:+.2f}%"),
-            (fc4, "Short Outlook", outlook, ""),
+        for col, label, val, delta_v, d_clr in [
+            (fc1, "Live Price",
+             f"₹{live_price:,.2f}",
+             f"EOD Close: ₹{hist_close:,.2f}", ""),
+            (fc2, "5-Day Projection",
+             f"₹{proj_5d:,.2f}",
+             f"{((proj_5d/live_price)-1)*100:+.2f}%",
+             "pos" if proj_5d >= live_price else "neg"),
+            (fc3, "10-Day Projection",
+             f"₹{proj_10d:,.2f}",
+             f"{((proj_10d/live_price)-1)*100:+.2f}%",
+             "pos" if proj_10d >= live_price else "neg"),
+            (fc4, "Short Outlook", outlook, "", ""),
         ]:
             col.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">{label}</div>
-                <div class="metric-value" style="font-size:1.1rem;color:{outlook_clr if label=='Short Outlook' else 'var(--text-primary)'};">{val}</div>
-                <div class="metric-delta pos">{delta_v}</div>
+                <div class="metric-value" style="font-size:1.05rem;
+                    color:{outlook_clr if label=='Short Outlook' else 'var(--text-primary)'};">
+                    {val}
+                </div>
+                <div class="metric-delta {d_clr}">{delta_v}</div>
             </div>
             """, unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Factor breakdown
-        st.markdown('<div class="section-header">📊 Forecast Factor Breakdown</div>', unsafe_allow_html=True)
+        # ── Factor breakdown ──
+        st.markdown('<div class="section-header">📊 Forecast Factor Breakdown</div>',
+                    unsafe_allow_html=True)
+        sma50_display = f"{sma50_last:.1f}" if not pd.isna(sma50_last) else "N/A"
         factors_data = {
             "EMA 13 > EMA 21 (Short momentum)":    (ema_bullish,  f"EMA13={ema13_last:.1f}, EMA21={ema21_last:.1f}"),
-            "Price > SMA 50 (Medium trend)":        (above_sma50,  f"Price={last_close:.1f}, SMA50={sma50_last:.1f}" if not pd.isna(sma50_last) else "Insufficient data"),
+            "Price > SMA 50 (Medium trend)":        (above_sma50,  f"Price={live_price:.1f}, SMA50={sma50_display}"),
             "RSI 40–70 (Healthy momentum)":         (momentum_ok,  f"RSI={rsi_cur:.1f}"),
             "ADX > 20 (Trending)":                  (trending,     f"ADX={adx_cur:.1f}"),
             "PCR > 1 (Bullish options sentiment)":  (pcr > 1.0,    f"PCR={pcr:.3f}"),
@@ -1848,25 +1897,42 @@ with tab4:
                         border-left:3px solid {'#3fb950' if is_ok else '#f85149'};">
                 <span style="font-size:1rem;">{icon}</span>
                 <span style="flex:1;font-size:0.88rem;">{factor_name}</span>
-                <span style="font-size:0.8rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">{detail}</span>
+                <span style="font-size:0.8rem;color:#8b949e;
+                      font-family:'JetBrains Mono',monospace;">{detail}</span>
             </div>
             """, unsafe_allow_html=True)
 
-        # Projection chart
+        # ── Projection chart ──
         if PLOTLY_AVAILABLE:
             st.markdown('<div class="section-header">📈 Price + Simple Projection</div>',
                         unsafe_allow_html=True)
             hist_dates  = list(df_hist.index[-30:])
             hist_prices = list(df_hist["Close"].tail(30))
+
+            # Patch the last historical price to be the live price (no gap on chart)
+            if hist_prices:
+                hist_prices[-1] = live_price
+
             proj_dates  = pd.date_range(
                 start=hist_dates[-1] + pd.Timedelta(days=1), periods=10, freq="B"
             )
-            proj_prices = [last_close * (1 + avg_daily_ret) ** i for i in range(1, 11)]
+            proj_prices = [live_price * (1 + avg_daily_ret) ** i for i in range(1, 11)]
+            std_daily   = float(recent_returns.std()) if len(recent_returns) > 1 else 0.005
+            std_daily   = min(std_daily, 0.03)   # cap std so bands don't go insane
+            upper = [live_price * (1 + avg_daily_ret + std_daily) ** i for i in range(1, 11)]
+            lower = [live_price * (1 + avg_daily_ret - std_daily) ** i for i in range(1, 11)]
 
             fig_fc = go.Figure()
             fig_fc.add_trace(go.Scatter(
                 x=hist_dates, y=hist_prices,
-                name="Historical", line=dict(color="#58a6ff", width=2),
+                name="Historical Close", line=dict(color="#58a6ff", width=2),
+            ))
+            # Live price marker
+            fig_fc.add_trace(go.Scatter(
+                x=[hist_dates[-1]], y=[live_price],
+                mode="markers",
+                name=f"Live ₹{live_price:,.2f}",
+                marker=dict(color="#d29922", size=10, symbol="diamond"),
             ))
             fig_fc.add_trace(go.Scatter(
                 x=proj_dates, y=proj_prices,
@@ -1875,27 +1941,27 @@ with tab4:
                 mode="lines+markers",
                 marker=dict(color="#d29922", size=5),
             ))
-            # Upper/lower bands (±1 std)
-            std_daily = recent_returns.std()
-            upper = [last_close * (1 + avg_daily_ret + std_daily) ** i for i in range(1, 11)]
-            lower = [last_close * (1 + avg_daily_ret - std_daily) ** i for i in range(1, 11)]
             fig_fc.add_trace(go.Scatter(
                 x=list(proj_dates) + list(proj_dates[::-1]),
                 y=upper + lower[::-1],
-                fill="toself", fillcolor="rgba(210,153,34,0.08)",
+                fill="toself",
+                fillcolor="rgba(210,153,34,0.07)",
                 line=dict(color="rgba(0,0,0,0)"),
                 name="±1σ Band",
             ))
             fig_fc.update_layout(
-                height=350, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                height=370,
+                paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
                 font=dict(family="JetBrains Mono, monospace", color="#8b949e"),
-                legend=dict(orientation="h", bgcolor="rgba(0,0,0,0)"),
+                legend=dict(orientation="h", bgcolor="rgba(0,0,0,0)",
+                            yanchor="bottom", y=1.02),
                 margin=dict(l=10, r=10, t=20, b=10),
                 hovermode="x unified",
             )
             fig_fc.update_xaxes(gridcolor="#1c2128")
-            fig_fc.update_yaxes(gridcolor="#1c2128")
-            st.plotly_chart(fig_fc, use_container_width=True, config={"displayModeBar": False})
+            fig_fc.update_yaxes(gridcolor="#1c2128", tickformat=",")
+            st.plotly_chart(fig_fc, use_container_width=True,
+                            config={"displayModeBar": False})
 
         st.markdown("""
         <div style="background:rgba(88,166,255,0.05);border:1px solid #1c2128;
