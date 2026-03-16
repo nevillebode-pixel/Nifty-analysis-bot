@@ -16,6 +16,7 @@ import datetime
 import warnings
 import traceback
 from io import StringIO
+from typing import Tuple, Optional, List, Dict, Any
 
 warnings.filterwarnings("ignore")
 
@@ -279,7 +280,7 @@ HEADERS = {
 SECTOR_TICKERS = {
     "IT":        ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
     "Banking":   ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS"],
-    "Auto":      ["MARUTI.NS", "M&M.NS", "TATAMOTORS.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
+    "Auto":      ["MARUTI.NS", "MAHINDRA.NS", "TATAMOTORS.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
     "Pharma":    ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS"],
     "Energy":    ["RELIANCE.NS", "ONGC.NS", "NTPC.NS", "POWERGRID.NS", "BPCL.NS"],
     "Metal":     ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "COALINDIA.NS", "VEDL.NS"],
@@ -378,7 +379,7 @@ def fetch_historical(index_name: str, days: int = 60):
         except Exception:
             pass
     # ── Synthetic fallback with realistic base price ──
-    dates = pd.date_range(end=datetime.date.today(), periods=days, freq="B")
+    dates = pd.bdate_range(end=datetime.date.today(), periods=days)
     base  = 23400 if index_name == "NIFTY" else (49500 if index_name == "BANKNIFTY" else 77000)
     rng   = np.random.default_rng(42)
     closes = base + np.cumsum(rng.normal(0, 80, days))
@@ -392,17 +393,71 @@ def fetch_historical(index_name: str, days: int = 60):
     return df
 
 
-@st.cache_data(ttl=180)
+@st.cache_data(ttl=120)
 def fetch_option_chain(index_name: str):
-    """Fetch NSE option chain data."""
+    """
+    Fetch NSE option chain data.
+    Uses a fresh session per call (not the cached resource) to avoid
+    header-mutation side-effects. Two attempts: cached-session then fresh.
+    sleep() is intentionally NOT used inside cached functions.
+    """
+    sym = "NIFTY" if index_name == "NIFTY" else (
+        "BANKNIFTY" if index_name == "BANKNIFTY" else "SENSEX"
+    )
+    url = f"https://www.nseindia.com/api/option-chain-indices?symbol={sym}"
+
+    api_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept":           "application/json, text/plain, */*",
+        "Accept-Language":  "en-US,en;q=0.9",
+        "Accept-Encoding":  "gzip, deflate, br",
+        "Referer":          "https://www.nseindia.com/option-chain",
+        "X-Requested-With": "XMLHttpRequest",
+        "Connection":       "keep-alive",
+    }
+
+    def _try_fetch(session: requests.Session) -> Optional[Dict]:
+        try:
+            r = session.get(url, timeout=15, headers=api_headers)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("records", {}).get("data"):
+                    return data
+        except Exception:
+            pass
+        return None
+
+    # Attempt 1: use the cached session (already has homepage cookies)
     try:
         s = get_nse_session()
-        sym = "NIFTY" if index_name == "NIFTY" else ("BANKNIFTY" if index_name == "BANKNIFTY" else "SENSEX")
-        url = f"https://www.nseindia.com/api/option-chain-indices?symbol={sym}"
-        r = s.get(url, timeout=12)
-        return r.json()
+        result = _try_fetch(s)
+        if result:
+            return result
     except Exception:
-        return None
+        pass
+
+    # Attempt 2: brand-new session — get fresh cookies first
+    try:
+        fresh = requests.Session()
+        fresh.get(
+            "https://www.nseindia.com",
+            timeout=10,
+            headers={
+                "User-Agent": api_headers["User-Agent"],
+                "Accept": "text/html,application/xhtml+xml,*/*",
+            },
+        )
+        result2 = _try_fetch(fresh)
+        if result2:
+            return result2
+    except Exception:
+        pass
+
+    return None
 
 
 @st.cache_data(ttl=300)
@@ -627,36 +682,67 @@ def calc_confidence(rsi, adx, pcr, oi_signal):
 # ════════════════════════════════════════════════════════════════════
 
 def parse_oi_near_atm(option_chain_data, spot: float, spread: int = 300):
-    """Extract CE/PE OI change for strikes near spot."""
+    """
+    Extract CE/PE OI and OI-change for strikes near spot.
+    Handles all NSE field name variants and None/missing values robustly.
+    """
     records = []
     if not option_chain_data:
         return pd.DataFrame()
     try:
         raw = option_chain_data.get("records", {}).get("data", [])
+        if not raw:
+            return pd.DataFrame()
+
         for row in raw:
-            strike = row.get("strikePrice", 0)
-            if abs(strike - spot) > spread:
+            strike = safe_float(row.get("strikePrice", 0), 0)
+            if strike == 0:
                 continue
-            ce_oi_chg = row.get("CE", {}).get("changeinOpenInterest", 0) or 0
-            pe_oi_chg = row.get("PE", {}).get("changeinOpenInterest", 0) or 0
-            ce_oi     = row.get("CE", {}).get("openInterest", 0) or 0
-            pe_oi     = row.get("PE", {}).get("openInterest", 0) or 0
+            if spot > 0 and abs(strike - spot) > spread:
+                continue
+
+            ce  = row.get("CE", {}) or {}
+            pe  = row.get("PE", {}) or {}
+
+            # NSE uses "changeinOpenInterest" (note lowercase 'i' in 'in')
+            # Some API versions use "changeInOpenInterest" — handle both
+            def _oi_chg(d: dict) -> float:
+                for key in ("changeinOpenInterest", "changeInOpenInterest",
+                            "change_in_open_interest", "chngInOI"):
+                    v = d.get(key)
+                    if v is not None:
+                        return safe_float(v, 0.0)
+                return 0.0
+
+            def _oi(d: dict) -> float:
+                for key in ("openInterest", "open_interest", "OI", "oi"):
+                    v = d.get(key)
+                    if v is not None:
+                        return safe_float(v, 0.0)
+                return 0.0
+
             records.append({
-                "Strike":    strike,
-                "CE_OI":     ce_oi,
-                "PE_OI":     pe_oi,
-                "CE_OI_Chg": ce_oi_chg,
-                "PE_OI_Chg": pe_oi_chg,
+                "Strike":    int(strike),
+                "CE_OI":     _oi(ce),
+                "PE_OI":     _oi(pe),
+                "CE_OI_Chg": _oi_chg(ce),
+                "PE_OI_Chg": _oi_chg(pe),
+                "CE_LTP":    safe_float(ce.get("lastPrice", ce.get("ltp", 0)), 0.0),
+                "PE_LTP":    safe_float(pe.get("lastPrice", pe.get("ltp", 0)), 0.0),
+                "CE_IV":     safe_float(ce.get("impliedVolatility", ce.get("IV", 0)), 0.0),
+                "PE_IV":     safe_float(pe.get("impliedVolatility", pe.get("IV", 0)), 0.0),
             })
-    except Exception:
-        pass
-    df = pd.DataFrame(records)
-    if not df.empty:
-        df = df.sort_values("Strike").reset_index(drop=True)
+    except Exception as e:
+        return pd.DataFrame()
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records).sort_values("Strike").reset_index(drop=True)
     return df
 
 
-def compute_oi_signal(ce_chg: float, pe_chg: float, spot_chg_pct: float) -> tuple[str, str]:
+def compute_oi_signal(ce_chg: float, pe_chg: float, spot_chg_pct: float) -> Tuple[str, str]:
     """Return (signal_name, css_class)."""
     if ce_chg > 0 and pe_chg < 0 and spot_chg_pct < 0:
         return "Short Build Up 🔴", "bearish"
@@ -801,7 +887,7 @@ def build_price_chart(df: pd.DataFrame, chart_type: str, index_name: str,
         ]:
             fig.add_hline(y=val, line=dict(color=clr, width=1, dash="dot"),
                           annotation_text=f" {label}", annotation_position="right",
-                          annotation_font_color=clr, row=1, col=1)
+                          annotation_font=dict(color=clr, size=10), row=1, col=1)
 
     if show_cam and cam:
         for label, val, clr in [
@@ -812,14 +898,14 @@ def build_price_chart(df: pd.DataFrame, chart_type: str, index_name: str,
         ]:
             fig.add_hline(y=val, line=dict(color=clr, width=0.8, dash="dashdot"),
                           annotation_text=f" {label}", annotation_position="left",
-                          annotation_font_color=clr, row=1, col=1)
+                          annotation_font=dict(color=clr, size=10), row=1, col=1)
 
     if show_fib and fib:
         colors_fib = ["#ffffff", "#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#f85149"]
         for (label, val), clr in zip(fib.items(), colors_fib):
             fig.add_hline(y=val, line=dict(color=clr, width=0.8, dash="dot"),
                           annotation_text=f" Fib {label}", annotation_position="right",
-                          annotation_font_color=clr, row=1, col=1)
+                          annotation_font=dict(color=clr, size=10), row=1, col=1)
 
     # ── Subplot: ADX or Volume ──
     if show_adx:
@@ -832,8 +918,13 @@ def build_price_chart(df: pd.DataFrame, chart_type: str, index_name: str,
                       row=2, col=1)
 
     if show_volume and not show_adx and "Volume" in df.columns:
-        clr_vol = ["#3fb950" if df["Close"].iloc[i] >= df["Open"].iloc[i] else "#f85149"
-                   for i in range(len(df))]
+        if "Open" in df.columns:
+            clr_vol = ["#3fb950" if df["Close"].iloc[i] >= df["Open"].iloc[i] else "#f85149"
+                       for i in range(len(df))]
+        else:
+            # No Open column — color by close vs previous close
+            clr_vol = ["#3fb950" if i == 0 or df["Close"].iloc[i] >= df["Close"].iloc[i-1]
+                       else "#f85149" for i in range(len(df))]
         fig.add_trace(go.Bar(x=df.index, y=df["Volume"],
             marker_color=clr_vol, name="Volume", opacity=0.6),
             row=2, col=1)
@@ -1053,25 +1144,29 @@ def scan_ma_crossovers(df: pd.DataFrame):
         curr_diff = ema13.iloc[i]   - ema21.iloc[i]
         if pd.isna(prev_diff) or pd.isna(curr_diff):
             continue
-        date_label = df.index[i].strftime("%d %b %Y") if hasattr(df.index[i], "strftime") else str(df.index[i])[:10]
+        ts = df.index[i]
+        date_label = ts.strftime("%d %b %Y") if hasattr(ts, "strftime") else str(ts)[:10]
+        sort_key   = ts.date() if hasattr(ts, "date") else ts
         price = df["Close"].iloc[i]
         if prev_diff < 0 and curr_diff >= 0:
             signals.append({
-                "date":   date_label,
-                "type":   "Bullish Crossover",
-                "detail": "EMA 13 crossed above EMA 21",
-                "price":  round(price, 2),
-                "icon":   "🟢",
-                "style":  "bullish",
+                "date":     date_label,
+                "sort_key": sort_key,
+                "type":     "Bullish Crossover",
+                "detail":   "EMA 13 crossed above EMA 21",
+                "price":    round(price, 2),
+                "icon":     "🟢",
+                "style":    "bullish",
             })
         elif prev_diff > 0 and curr_diff <= 0:
             signals.append({
-                "date":   date_label,
-                "type":   "Bearish Crossover",
-                "detail": "EMA 13 crossed below EMA 21",
-                "price":  round(price, 2),
-                "icon":   "🔴",
-                "style":  "bearish",
+                "date":     date_label,
+                "sort_key": sort_key,
+                "type":     "Bearish Crossover",
+                "detail":   "EMA 13 crossed below EMA 21",
+                "price":    round(price, 2),
+                "icon":     "🔴",
+                "style":    "bearish",
             })
 
     # ── SMA 50/200 Golden/Death Cross (last 60 days) ──
@@ -1084,29 +1179,33 @@ def scan_ma_crossovers(df: pd.DataFrame):
         curr_diff = sma50.iloc[i]   - sma200.iloc[i]
         if pd.isna(prev_diff) or pd.isna(curr_diff):
             continue
-        date_label = df.index[i].strftime("%d %b %Y") if hasattr(df.index[i], "strftime") else str(df.index[i])[:10]
+        ts = df.index[i]
+        date_label = ts.strftime("%d %b %Y") if hasattr(ts, "strftime") else str(ts)[:10]
+        sort_key   = ts.date() if hasattr(ts, "date") else ts
         price = df["Close"].iloc[i]
         if prev_diff < 0 and curr_diff >= 0:
             signals.append({
-                "date":   date_label,
-                "type":   "Golden Cross ✨",
-                "detail": "SMA 50 crossed above SMA 200",
-                "price":  round(price, 2),
-                "icon":   "🌟",
-                "style":  "bullish",
+                "date":     date_label,
+                "sort_key": sort_key,
+                "type":     "Golden Cross ✨",
+                "detail":   "SMA 50 crossed above SMA 200",
+                "price":    round(price, 2),
+                "icon":     "🌟",
+                "style":    "bullish",
             })
         elif prev_diff > 0 and curr_diff <= 0:
             signals.append({
-                "date":   date_label,
-                "type":   "Death Cross ☠️",
-                "detail": "SMA 50 crossed below SMA 200",
-                "price":  round(price, 2),
-                "icon":   "💀",
-                "style":  "bearish",
+                "date":     date_label,
+                "sort_key": sort_key,
+                "type":     "Death Cross ☠️",
+                "detail":   "SMA 50 crossed below SMA 200",
+                "price":    round(price, 2),
+                "icon":     "💀",
+                "style":    "bearish",
             })
 
-    # Sort newest first
-    signals = sorted(signals, key=lambda x: x["date"], reverse=True)
+    # Sort by actual date object (newest first) — NOT by display string
+    signals = sorted(signals, key=lambda x: x["sort_key"], reverse=True)
     return signals
 
 
@@ -1157,31 +1256,47 @@ def build_ma_chart(df: pd.DataFrame, index_name: str):
 
 @st.cache_data(ttl=600)
 def fetch_sector_data():
-    """Fetch sector approximate volume/price change data."""
+    """Fetch sector approximate volume/price change data with per-ticker timeout guard."""
     results = {}
     if YF_AVAILABLE:
+        import concurrent.futures
+
+        def _fetch_ticker(ticker: str) -> Tuple[float, float]:
+            """Returns (pct_change, vol_change) or (0,0) on failure."""
+            try:
+                tk = yf.Ticker(ticker)
+                # Use fast_info first to avoid slow history on dead tickers
+                h = tk.history(period="5d", interval="1d", timeout=8)
+                if len(h) >= 2 and h["Close"].iloc[-2] > 0:
+                    pct = (h["Close"].iloc[-1] - h["Close"].iloc[-2]) / h["Close"].iloc[-2] * 100
+                    vol = 0.0
+                    if h["Volume"].iloc[-2] > 0:
+                        vol = (h["Volume"].iloc[-1] - h["Volume"].iloc[-2]) / h["Volume"].iloc[-2] * 100
+                    return round(pct, 2), round(vol, 2)
+            except Exception:
+                pass
+            return 0.0, 0.0
+
         for sector, tickers in SECTOR_TICKERS.items():
-            pct_changes, vol_changes = [], []
-            for ticker in tickers[:3]:  # Top 3 per sector to avoid rate limits
-                try:
-                    tk = yf.Ticker(ticker)
-                    h = tk.history(period="5d", interval="1d")
-                    if len(h) >= 2:
-                        pct_changes.append(
-                            (h["Close"].iloc[-1] - h["Close"].iloc[-2]) / h["Close"].iloc[-2] * 100
-                        )
-                        if h["Volume"].iloc[-2] > 0:
-                            vol_changes.append(
-                                (h["Volume"].iloc[-1] - h["Volume"].iloc[-2]) / h["Volume"].iloc[-2] * 100
-                            )
-                except Exception:
-                    continue
+            pct_list, vol_list = [], []
+            # Use ThreadPoolExecutor with hard timeout per sector
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+                futures = {ex.submit(_fetch_ticker, t): t for t in tickers[:3]}
+                for fut in concurrent.futures.as_completed(futures, timeout=12):
+                    try:
+                        pct, vol = fut.result()
+                        if pct != 0.0:
+                            pct_list.append(pct)
+                        if vol != 0.0:
+                            vol_list.append(vol)
+                    except Exception:
+                        continue
             results[sector] = {
-                "avg_pct": round(np.mean(pct_changes), 2) if pct_changes else 0,
-                "vol_chg": round(np.mean(vol_changes), 2) if vol_changes else 0,
+                "avg_pct": round(float(np.mean(pct_list)), 2) if pct_list else 0.0,
+                "vol_chg": round(float(np.mean(vol_list)), 2) if vol_list else 0.0,
             }
     else:
-        mock = {
+        results = {
             "IT":      {"avg_pct": 0.8,  "vol_chg": 12},
             "Banking": {"avg_pct": -0.3, "vol_chg": -5},
             "Auto":    {"avg_pct": 1.2,  "vol_chg": 18},
@@ -1191,7 +1306,6 @@ def fetch_sector_data():
             "FMCG":    {"avg_pct": 0.2,  "vol_chg": -3},
             "Realty":  {"avg_pct": 2.1,  "vol_chg": 45},
         }
-        results = mock
     return results
 
 
@@ -1342,14 +1456,31 @@ with st.sidebar:
 
     st.markdown("---")
     auto_refresh = st.checkbox("⏱ Auto Refresh (60s)", value=False)
-    if st.button("🔄 Refresh Now", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🔄 Refresh Now", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    with col_btn2:
+        if st.button("🗑️ Clear Cache", use_container_width=True):
+            st.cache_data.clear()
+            st.success("Cache cleared!")
 
+    # ── Non-blocking auto-refresh via st.empty + meta refresh ──
+    # time.sleep() inside sidebar blocks the ENTIRE app for every user interaction.
+    # Instead we inject an HTML meta-refresh tag that reloads the browser tab.
     if auto_refresh:
-        time.sleep(60)
-        st.cache_data.clear()
-        st.rerun()
+        st.markdown(
+            "<div style='font-size:0.72rem;color:#3fb950;font-family:\"JetBrains Mono\",monospace;"
+            "margin-top:0.3rem;'>✅ Auto-refresh active (60s)</div>",
+            unsafe_allow_html=True,
+        )
+        # Inject a meta-refresh into the page — reloads the tab every 60 seconds
+        # without blocking any user interaction
+        st.markdown(
+            "<meta http-equiv='refresh' content='60'>",
+            unsafe_allow_html=True,
+        )
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1449,13 +1580,21 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_labels)
 # ════════════════════════════════════════════════════════════════════
 with tab1:
     # OI Signal Card
+    oi_data_note = "" if (total_ce_chg != 0 or total_pe_chg != 0) else (
+        "<div style='font-size:0.72rem;color:#d29922;margin-top:0.3rem;'>"
+        "⚠️ Live OI fetch failed — signal based on price action only. "
+        "Check OI tab for details."
+        "</div>"
+    )
     st.markdown(f"""
     <div class="oi-card {oi_signal_class}">
         <div class="oi-signal-title">📡 OI Interpretation Signal</div>
         <div class="oi-signal-text">{oi_signal_name}</div>
-        <div style="font-size:0.78rem; color:#8b949e; margin-top:0.3rem; font-family:'JetBrains Mono',monospace;">
+        <div style="font-size:0.78rem; color:#8b949e; margin-top:0.3rem;
+                    font-family:'JetBrains Mono',monospace;">
             CE OI Chg: {total_ce_chg:+,.0f} &nbsp;|&nbsp; PE OI Chg: {total_pe_chg:+,.0f}
         </div>
+        {oi_data_note}
     </div>
     """, unsafe_allow_html=True)
 
@@ -1526,7 +1665,10 @@ with tab2:
     st.markdown(f'<div class="section-header">📊 Open Interest — Near ATM Option Chain</div>',
                 unsafe_allow_html=True)
 
-    if oi_df.empty:
+    # ── tab2-local oi_df: may be populated with demo data here ──
+    tab2_oi_df = oi_df.copy() if not oi_df.empty else pd.DataFrame()
+
+    if tab2_oi_df.empty:
         # Weekend / holiday fallback
         is_weekend = datetime.date.today().weekday() >= 5
         if is_weekend:
@@ -1540,16 +1682,20 @@ with tab2:
                 "This can happen outside market hours (9:15 AM – 3:30 PM IST) "
                 "or due to NSE rate-limiting. Showing demo data."
             )
-        # Generate demo OI data
-        atm_approx = round(spot_price / 50) * 50
+        # Generate realistic demo OI data anchored to spot price
+        atm_approx   = round(spot_price / 50) * 50
         strikes_demo = [atm_approx + i * 50 for i in range(-6, 7)]
-        np.random.seed(int(spot_price) % 100)
-        oi_df = pd.DataFrame({
+        rng_demo     = np.random.default_rng(int(spot_price) % 9973)
+        tab2_oi_df   = pd.DataFrame({
             "Strike":    strikes_demo,
-            "CE_OI":     np.random.randint(50_000, 500_000, len(strikes_demo)),
-            "PE_OI":     np.random.randint(50_000, 500_000, len(strikes_demo)),
-            "CE_OI_Chg": np.random.randint(-50_000, 80_000, len(strikes_demo)),
-            "PE_OI_Chg": np.random.randint(-50_000, 80_000, len(strikes_demo)),
+            "CE_OI":     rng_demo.integers(80_000,  600_000, len(strikes_demo)),
+            "PE_OI":     rng_demo.integers(80_000,  600_000, len(strikes_demo)),
+            "CE_OI_Chg": rng_demo.integers(-80_000, 120_000, len(strikes_demo)),
+            "PE_OI_Chg": rng_demo.integers(-80_000, 120_000, len(strikes_demo)),
+            "CE_LTP":    rng_demo.uniform(5, 300, len(strikes_demo)).round(2),
+            "PE_LTP":    rng_demo.uniform(5, 300, len(strikes_demo)).round(2),
+            "CE_IV":     rng_demo.uniform(10, 30, len(strikes_demo)).round(2),
+            "PE_IV":     rng_demo.uniform(10, 30, len(strikes_demo)).round(2),
         })
         st.markdown(
             "<div style='background:rgba(210,153,34,0.1);border:1px solid #d29922;"
@@ -1559,60 +1705,111 @@ with tab2:
             "</div>",
             unsafe_allow_html=True,
         )
+    else:
+        # Show live data badge
+        st.markdown(
+            "<div style='background:rgba(63,185,80,0.08);border:1px solid #3fb950;"
+            "border-radius:6px;padding:0.4rem 1rem;font-size:0.78rem;color:#3fb950;"
+            "font-family:\"JetBrains Mono\",monospace;margin-bottom:0.8rem;display:inline-block;'>"
+            "🟢 Live NSE Data · Option Chain loaded successfully"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Recalculate totals from whichever oi_df we ended up with ──
+    tab2_ce_chg = float(tab2_oi_df["CE_OI_Chg"].sum()) if not tab2_oi_df.empty else 0.0
+    tab2_pe_chg = float(tab2_oi_df["PE_OI_Chg"].sum()) if not tab2_oi_df.empty else 0.0
+    tab2_signal_name, tab2_signal_class = compute_oi_signal(
+        tab2_ce_chg, tab2_pe_chg, quote.get("pct", 0)
+    )
 
     # Build & show OI chart
-    oi_fig = build_oi_chart(oi_df, spot_price, selected_index)
+    oi_fig = build_oi_chart(tab2_oi_df, spot_price, selected_index)
     if oi_fig and PLOTLY_AVAILABLE:
         st.plotly_chart(oi_fig, use_container_width=True, config={"displayModeBar": False})
     else:
         st.error("Could not build OI chart. Ensure plotly is installed.")
 
-    # OI data table
+    # OI data table — show OHLCV-style columns if LTP/IV available
     st.markdown('<div class="section-header">📋 Option Chain Data Table</div>', unsafe_allow_html=True)
-    display_df = oi_df.copy()
-    display_df.columns = ["Strike", "CE OI", "PE OI", "CE OI Chg", "PE OI Chg"]
-    atm_val = min(oi_df["Strike"].tolist(), key=lambda s: abs(s - spot_price))
-    st.dataframe(
-        display_df.style
-            .format({"CE OI": "{:,.0f}", "PE OI": "{:,.0f}",
-                     "CE OI Chg": "{:+,.0f}", "PE OI Chg": "{:+,.0f}"})
-            .applymap(lambda v: "color: #f85149" if isinstance(v, (int, float)) and v < 0
-                      else ("color: #3fb950" if isinstance(v, (int, float)) and v > 0 else ""),
-                      subset=["CE OI Chg", "PE OI Chg"])
-            .apply(lambda row: ["background-color: rgba(210,153,34,0.15)"] * len(row)
-                   if row["Strike"] == atm_val else [""] * len(row), axis=1),
-        use_container_width=True, height=320,
-    )
+    display_cols = ["Strike", "CE_OI_Chg", "CE_OI", "CE_LTP", "CE_IV",
+                    "PE_IV", "PE_LTP", "PE_OI", "PE_OI_Chg"]
+    display_cols = [c for c in display_cols if c in tab2_oi_df.columns]
+    display_df   = tab2_oi_df[display_cols].copy()
+    col_rename   = {
+        "CE_OI_Chg": "CE OI Chg", "CE_OI": "CE OI", "CE_LTP": "CE LTP", "CE_IV": "CE IV%",
+        "PE_IV": "PE IV%", "PE_LTP": "PE LTP", "PE_OI": "PE OI", "PE_OI_Chg": "PE OI Chg",
+    }
+    display_df.rename(columns=col_rename, inplace=True)
 
-    # OI Signal summary card
+    atm_val = int(min(tab2_oi_df["Strike"].tolist(), key=lambda s: abs(float(s) - spot_price)))
+
+    fmt = {}
+    if "CE OI"     in display_df.columns: fmt["CE OI"]     = "{:,.0f}"
+    if "PE OI"     in display_df.columns: fmt["PE OI"]     = "{:,.0f}"
+    if "CE OI Chg" in display_df.columns: fmt["CE OI Chg"] = "{:+,.0f}"
+    if "PE OI Chg" in display_df.columns: fmt["PE OI Chg"] = "{:+,.0f}"
+    if "CE LTP"    in display_df.columns: fmt["CE LTP"]    = "{:.2f}"
+    if "PE LTP"    in display_df.columns: fmt["PE LTP"]    = "{:.2f}"
+    if "CE IV%"    in display_df.columns: fmt["CE IV%"]    = "{:.1f}"
+    if "PE IV%"    in display_df.columns: fmt["PE IV%"]    = "{:.1f}"
+
+    chg_cols = [c for c in ["CE OI Chg", "PE OI Chg"] if c in display_df.columns]
+    styled = display_df.style.format(fmt)
+    if chg_cols:
+        def _color_chg(v):
+            if isinstance(v, (int, float)):
+                return "color: #f85149" if v < 0 else ("color: #3fb950" if v > 0 else "")
+            return ""
+        styled = styled.map(_color_chg, subset=chg_cols)
+    styled = styled.apply(
+        lambda row: ["background-color: rgba(210,153,34,0.18); font-weight:600"] * len(row)
+        if int(row["Strike"]) == atm_val else [""] * len(row), axis=1
+    )
+    st.dataframe(styled, use_container_width=True, height=340)
+
+    # OI Signal summary card — uses tab2-local recalculated values
     st.markdown(f"""
-    <div class="oi-card {oi_signal_class}">
+    <div class="oi-card {tab2_signal_class}">
         <div class="oi-signal-title">🎯 Current OI Signal Summary</div>
-        <div class="oi-signal-text">{oi_signal_name}</div>
+        <div class="oi-signal-text">{tab2_signal_name}</div>
         <div style="display:flex;gap:2rem;margin-top:0.6rem;flex-wrap:wrap;">
             <div>
-                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">TOTAL CE OI CHG</span><br>
-                <span style="font-size:1rem;font-weight:600;color:#f85149;font-family:'JetBrains Mono',monospace;">
-                    {total_ce_chg:+,.0f}
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">
+                    TOTAL CE OI CHG (±{len(tab2_oi_df)} strikes)
+                </span><br>
+                <span style="font-size:1rem;font-weight:600;color:#f85149;
+                      font-family:'JetBrains Mono',monospace;">
+                    {tab2_ce_chg:+,.0f}
                 </span>
             </div>
             <div>
-                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">TOTAL PE OI CHG</span><br>
-                <span style="font-size:1rem;font-weight:600;color:#3fb950;font-family:'JetBrains Mono',monospace;">
-                    {total_pe_chg:+,.0f}
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">
+                    TOTAL PE OI CHG (±{len(tab2_oi_df)} strikes)
+                </span><br>
+                <span style="font-size:1rem;font-weight:600;color:#3fb950;
+                      font-family:'JetBrains Mono',monospace;">
+                    {tab2_pe_chg:+,.0f}
                 </span>
             </div>
             <div>
                 <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">PCR</span><br>
-                <span style="font-size:1rem;font-weight:600;color:#58a6ff;font-family:'JetBrains Mono',monospace;">
-                    {pcr:.3f}
-                </span>
+                <span style="font-size:1rem;font-weight:600;color:#58a6ff;
+                      font-family:'JetBrains Mono',monospace;">{pcr:.3f}</span>
             </div>
             <div>
-                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">SPOT PRICE</span><br>
-                <span style="font-size:1rem;font-weight:600;color:#e6edf3;font-family:'JetBrains Mono',monospace;">
-                    ₹{spot_price:,.2f}
-                </span>
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">
+                    SPOT PRICE
+                </span><br>
+                <span style="font-size:1rem;font-weight:600;color:#e6edf3;
+                      font-family:'JetBrains Mono',monospace;">₹{spot_price:,.2f}</span>
+            </div>
+            <div>
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">
+                    ATM STRIKE
+                </span><br>
+                <span style="font-size:1rem;font-weight:600;color:#d29922;
+                      font-family:'JetBrains Mono',monospace;">{atm_val:,}</span>
             </div>
         </div>
     </div>
@@ -1926,8 +2123,8 @@ with tab4:
             if hist_prices:
                 hist_prices[-1] = live_price
 
-            proj_dates  = pd.date_range(
-                start=hist_dates[-1] + pd.Timedelta(days=1), periods=10, freq="B"
+            proj_dates  = pd.bdate_range(
+                start=hist_dates[-1] + pd.Timedelta(days=1), periods=10
             )
             proj_prices = [live_price * (1 + avg_daily_ret) ** i for i in range(1, 11)]
             std_daily   = float(recent_returns.std()) if len(recent_returns) > 1 else 0.005
