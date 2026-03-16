@@ -833,116 +833,162 @@ def build_price_chart(df: pd.DataFrame, chart_type: str, index_name: str,
 
 
 def build_oi_chart(oi_df: pd.DataFrame, spot: float, index_name: str):
-    """Sensibull-style OI change chart."""
+    """
+    Sensibull-style horizontal OI change chart.
+    CE bars extend LEFT (red), PE bars extend RIGHT (green).
+    Robust against Plotly version differences — no annotations in update_layout,
+    no hovermode='y unified' with overlay bars (crashes on some builds).
+    """
     if not PLOTLY_AVAILABLE:
         return None
     if oi_df is None or oi_df.empty:
         return None
 
-    strikes    = oi_df["Strike"].tolist()
-    ce_changes = oi_df["CE_OI_Chg"].tolist()
-    pe_changes = oi_df["PE_OI_Chg"].tolist()
+    try:
+        strikes    = oi_df["Strike"].tolist()
+        ce_changes = oi_df["CE_OI_Chg"].tolist()
+        pe_changes = oi_df["PE_OI_Chg"].tolist()
 
-    fig = go.Figure()
+        # Signed x-values: CE goes left (negative), PE goes right (positive)
+        ce_x = [-abs(float(c)) if c >= 0 else float(abs(c)) for c in ce_changes]
+        pe_x = [ abs(float(p)) if p >= 0 else -float(abs(p)) for p in pe_changes]
 
-    # CE OI Change — bars going LEFT (negative direction visually = red)
-    fig.add_trace(go.Bar(
-        y=[str(int(s)) for s in strikes],
-        x=[-abs(c) if c >= 0 else abs(c) for c in ce_changes],
-        name="CE OI Change",
-        orientation="h",
-        marker=dict(
-            color=["rgba(248,81,73,0.85)" if c >= 0 else "rgba(248,81,73,0.35)"
-                   for c in ce_changes],
-            line=dict(color="#f85149", width=0.5),
-        ),
-        hovertemplate="Strike: %{y}<br>CE OI Chg: %{customdata:,}<extra></extra>",
-        customdata=ce_changes,
-    ))
+        strike_labels = [str(int(s)) for s in strikes]
+        sorted_labels = [str(int(s)) for s in sorted(strikes)]
 
-    # PE OI Change — bars going RIGHT (positive direction = green)
-    fig.add_trace(go.Bar(
-        y=[str(int(s)) for s in strikes],
-        x=[abs(p) if p >= 0 else -abs(p) for p in pe_changes],
-        name="PE OI Change",
-        orientation="h",
-        marker=dict(
-            color=["rgba(63,185,80,0.85)" if p >= 0 else "rgba(63,185,80,0.35)"
-                   for p in pe_changes],
-            line=dict(color="#3fb950", width=0.5),
-        ),
-        hovertemplate="Strike: %{y}<br>PE OI Chg: %{customdata:,}<extra></extra>",
-        customdata=pe_changes,
-    ))
+        ce_colors = [
+            "rgba(248,81,73,0.85)" if c >= 0 else "rgba(248,81,73,0.30)"
+            for c in ce_changes
+        ]
+        pe_colors = [
+            "rgba(63,185,80,0.85)" if p >= 0 else "rgba(63,185,80,0.30)"
+            for p in pe_changes
+        ]
 
-    # ATM line — find closest strike to spot
-    atm_strike = min(strikes, key=lambda s: abs(s - spot)) if strikes else spot
+        fig = go.Figure()
 
-    fig.add_shape(
-        type="line",
-        x0=0, x1=0,
-        y0=0, y1=1,
-        xref="paper", yref="paper",
-        line=dict(color="#ffffff", width=1.5, dash="dot"),
-    )
-    fig.add_annotation(
-        x=0, y=str(int(atm_strike)),
-        text=f" ◀ ATM {int(atm_strike)} ▶",
-        showarrow=False,
-        font=dict(color="#d29922", size=11, family="JetBrains Mono, monospace"),
-        xanchor="center",
-        bgcolor="rgba(210,153,34,0.15)",
-        bordercolor="#d29922",
-        borderwidth=1,
-    )
-
-    fig.update_layout(
-        barmode="overlay",
-        title=dict(
-            text=f"<b>{index_name} Option Chain — OI Change near ATM</b>",
-            font=dict(color="#e6edf3", size=14, family="Space Grotesk, sans-serif"),
-            x=0.5, xanchor="center",
-        ),
-        height=480,
-        paper_bgcolor="#0d1117",
-        plot_bgcolor="#161b22",
-        font=dict(family="JetBrains Mono, monospace", color="#8b949e", size=11),
-        legend=dict(
-            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-            bgcolor="rgba(0,0,0,0)", bordercolor="#30363d",
-            font=dict(size=11),
-        ),
-        margin=dict(l=20, r=20, t=60, b=30),
-        xaxis=dict(
-            title="OI Change (Contracts)  ← CE | PE →",
-            titlefont=dict(color="#8b949e"),
-            gridcolor="#1c2128", zeroline=True,
-            zerolinecolor="#30363d", zerolinewidth=1.5,
-        ),
-        yaxis=dict(
-            title="Strike Price",
-            titlefont=dict(color="#8b949e"),
-            gridcolor="#1c2128",
-            categoryorder="array",
-            categoryarray=[str(int(s)) for s in sorted(strikes)],
-        ),
-        annotations=[
-            dict(
-                text="<b>← Bearish (CE built)</b>",
-                x=-0.02, y=1.06, xref="paper", yref="paper",
-                showarrow=False, font=dict(color="#f85149", size=10),
-                xanchor="right",
+        # ── CE OI Change (red, extends left) ──
+        fig.add_trace(go.Bar(
+            y=strike_labels,
+            x=ce_x,
+            name="CE OI Chg",
+            orientation="h",
+            marker=dict(color=ce_colors, line=dict(color="#f85149", width=0.4)),
+            hovertemplate=(
+                "<b>Strike %{y}</b><br>"
+                "CE OI Change: %{customdata:+,}<extra>CE</extra>"
             ),
-            dict(
-                text="<b>Bullish (PE built) →</b>",
-                x=1.02, y=1.06, xref="paper", yref="paper",
-                showarrow=False, font=dict(color="#3fb950", size=10),
-                xanchor="left",
+            customdata=ce_changes,
+        ))
+
+        # ── PE OI Change (green, extends right) ──
+        fig.add_trace(go.Bar(
+            y=strike_labels,
+            x=pe_x,
+            name="PE OI Chg",
+            orientation="h",
+            marker=dict(color=pe_colors, line=dict(color="#3fb950", width=0.4)),
+            hovertemplate=(
+                "<b>Strike %{y}</b><br>"
+                "PE OI Change: %{customdata:+,}<extra>PE</extra>"
             ),
-        ],
-        hovermode="y unified",
-    )
-    return fig
+            customdata=pe_changes,
+        ))
+
+        # ── ATM annotation (add_annotation BEFORE update_layout to avoid conflict) ──
+        atm_strike = min(strikes, key=lambda s: abs(s - spot)) if strikes else spot
+        fig.add_annotation(
+            x=0,
+            y=str(int(atm_strike)),
+            text=f"  ★ ATM {int(atm_strike)}  ",
+            showarrow=False,
+            font=dict(color="#d29922", size=10, family="JetBrains Mono, monospace"),
+            xanchor="center",
+            yanchor="middle",
+            bgcolor="rgba(210,153,34,0.18)",
+            bordercolor="#d29922",
+            borderpad=3,
+            borderwidth=1,
+        )
+
+        # ── Direction labels (add_annotation, NOT inside update_layout) ──
+        fig.add_annotation(
+            text="<b>← CE (Bearish buildup)</b>",
+            x=0.01, y=1.05,
+            xref="paper", yref="paper",
+            showarrow=False,
+            font=dict(color="#f85149", size=10, family="JetBrains Mono, monospace"),
+            xanchor="left",
+        )
+        fig.add_annotation(
+            text="<b>PE (Bullish buildup) →</b>",
+            x=0.99, y=1.05,
+            xref="paper", yref="paper",
+            showarrow=False,
+            font=dict(color="#3fb950", size=10, family="JetBrains Mono, monospace"),
+            xanchor="right",
+        )
+
+        # ── Centre zero-line shape ──
+        fig.add_shape(
+            type="line",
+            x0=0, x1=0,
+            y0=0, y1=1,
+            xref="x", yref="paper",
+            line=dict(color="#8b949e", width=1.2, dash="dot"),
+        )
+
+        # ── Layout — NO annotations key, NO hovermode='y unified' ──
+        fig.update_layout(
+            barmode="overlay",
+            title=dict(
+                text=f"<b>{index_name} Option Chain — OI Change near ATM Strikes</b>",
+                font=dict(color="#e6edf3", size=13, family="Space Grotesk, sans-serif"),
+                x=0.5, xanchor="center",
+            ),
+            height=500,
+            paper_bgcolor="#0d1117",
+            plot_bgcolor="#161b22",
+            font=dict(family="JetBrains Mono, monospace", color="#8b949e", size=11),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom", y=1.08,
+                xanchor="center", x=0.5,
+                bgcolor="rgba(0,0,0,0)",
+                bordercolor="#30363d",
+                font=dict(size=11),
+            ),
+            margin=dict(l=10, r=10, t=80, b=20),
+            hovermode="closest",   # safe across all plotly versions
+            xaxis=dict(
+                title=dict(
+                    text="OI Change (Contracts)",
+                    font=dict(color="#8b949e", size=11),
+                ),
+                gridcolor="#1c2128",
+                zeroline=True,
+                zerolinecolor="#30363d",
+                zerolinewidth=1.5,
+                tickformat=",",
+            ),
+            yaxis=dict(
+                title=dict(
+                    text="Strike Price",
+                    font=dict(color="#8b949e", size=11),
+                ),
+                gridcolor="#1c2128",
+                categoryorder="array",
+                categoryarray=sorted_labels,
+                tickfont=dict(size=10),
+            ),
+        )
+
+        return fig
+
+    except Exception as e:
+        # Fallback: return None so the caller shows a graceful error message
+        st.warning(f"OI chart render error: {e}")
+        return None
 
 
 # ════════════════════════════════════════════════════════════════════
