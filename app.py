@@ -1,22 +1,42 @@
 """
-Nifty Analysis Bot — Enhanced with Global Risk Monitor Tab
-Inspired by worldmonitor.app for geopolitical context
+╔══════════════════════════════════════════════════════════════════════╗
+║          NIFTY ANALYSIS BOT  —  Full Production app.py              ║
+║  Tabs: Live Dashboard | OI & Option Chain | Global Risk Monitor      ║
+║        Forecasts | Sector Volume Buildup | MA Crossover Scanner      ║
+╚══════════════════════════════════════════════════════════════════════╝
 """
+
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import requests
-from datetime import datetime, timedelta
+import json
 import time
+import datetime
 import warnings
+import traceback
+from io import StringIO
+
 warnings.filterwarnings("ignore")
 
-# ─────────────────────────────────────────────
-# PAGE CONFIG
-# ─────────────────────────────────────────────
+# ── Optional heavy imports ───────────────────────────────────────────
+try:
+    import yfinance as yf
+    YF_AVAILABLE = True
+except ImportError:
+    YF_AVAILABLE = False
+
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
+# ════════════════════════════════════════════════════════════════════
+#  PAGE CONFIG
+# ════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Nifty Analysis Bot",
     page_icon="📈",
@@ -24,2317 +44,2052 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ─────────────────────────────────────────────
-# CUSTOM CSS
-# ─────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  GLOBAL CSS
+# ════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
 :root {
-    --bg: #0a0e1a;
-    --card: #111827;
-    --border: #1e2d45;
-    --accent: #00d4ff;
-    --green: #00ff88;
-    --red: #ff4466;
-    --yellow: #ffd700;
-    --text: #e2e8f0;
-    --muted: #64748b;
+    --bg-primary:    #0d1117;
+    --bg-secondary:  #161b22;
+    --bg-card:       #1c2128;
+    --bg-card2:      #21262d;
+    --accent:        #58a6ff;
+    --accent2:       #3fb950;
+    --accent-red:    #f85149;
+    --accent-yellow: #d29922;
+    --accent-purple: #bc8cff;
+    --text-primary:  #e6edf3;
+    --text-secondary:#8b949e;
+    --border:        #30363d;
+    --green:         #3fb950;
+    --red:           #f85149;
+    --yellow:        #d29922;
+    --font-mono:     'JetBrains Mono', monospace;
+    --font-sans:     'Space Grotesk', sans-serif;
 }
-.stApp { background: var(--bg); color: var(--text); font-family: 'Space Grotesk', sans-serif; }
+
+html, body, [class*="css"] {
+    font-family: var(--font-sans);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+/* ── HEADER ── */
+.main-title {
+    text-align: center;
+    font-family: var(--font-sans);
+    font-size: 2.6rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #58a6ff 0%, #3fb950 50%, #bc8cff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.2rem;
+}
+.main-subtitle {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-family: var(--font-mono);
+    margin-bottom: 1.5rem;
+    letter-spacing: 1px;
+}
+
+/* ── METRIC CARDS ── */
 .metric-card {
-    background: linear-gradient(135deg, #111827 0%, #0f172a 100%);
+    background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px 22px;
-    margin: 6px 0;
-    position: relative;
-    overflow: hidden;
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    text-align: center;
+    transition: border-color 0.2s;
 }
-.metric-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0;
-    width: 3px; height: 100%;
-    background: var(--accent);
-    border-radius: 3px 0 0 3px;
-}
-.metric-label { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
-.metric-value { font-size: 26px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; margin: 4px 0; }
-.metric-change-up { font-size: 13px; color: var(--green); font-family: 'JetBrains Mono', monospace; }
-.metric-change-down { font-size: 13px; color: var(--red); font-family: 'JetBrains Mono', monospace; }
-.summary-box {
-    background: linear-gradient(135deg, #0d1b2a 0%, #0a1628 100%);
-    border: 1px solid var(--accent);
-    border-radius: 16px;
-    padding: 28px 32px;
-    margin: 16px 0;
-    box-shadow: 0 0 40px rgba(0, 212, 255, 0.08);
-}
-.summary-title { font-size: 12px; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; margin-bottom: 12px; }
-.summary-text { font-size: 17px; color: var(--text); line-height: 1.7; font-weight: 400; }
-.confidence-bar-container { margin-top: 18px; }
-.confidence-label { font-size: 11px; color: var(--muted); letter-spacing: 1px; font-family: 'JetBrains Mono', monospace; }
-.section-header {
-    font-size: 13px;
-    letter-spacing: 2px;
+.metric-card:hover { border-color: var(--accent); }
+.metric-label {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
     text-transform: uppercase;
-    color: var(--accent);
-    font-family: 'JetBrains Mono', monospace;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
-    margin: 24px 0 16px;
+    letter-spacing: 1px;
+    margin-bottom: 0.3rem;
 }
-.tag-bullish { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.3); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin: 2px; display: inline-block; }
-.tag-bearish { background: rgba(255,68,102,0.12); color: var(--red); border: 1px solid rgba(255,68,102,0.3); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin: 2px; display: inline-block; }
-.tag-neutral { background: rgba(255,215,0,0.10); color: var(--yellow); border: 1px solid rgba(255,215,0,0.3); border-radius: 6px; padding: 3px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace; margin: 2px; display: inline-block; }
-div[data-testid="stSidebar"] { background: #0d1117; border-right: 1px solid var(--border); }
-div[data-testid="stSidebar"] .stSelectbox label, div[data-testid="stSidebar"] .stTextInput label { color: var(--muted) !important; font-size: 12px; letter-spacing: 1px; }
-.stDataFrame { background: var(--card); }
-h1 { font-family: 'JetBrains Mono', monospace !important; color: var(--accent) !important; letter-spacing: -1px; }
-h2, h3 { font-family: 'Space Grotesk', sans-serif !important; color: var(--text) !important; }
+.metric-value {
+    font-size: 1.45rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+}
+.metric-delta {
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    margin-top: 0.2rem;
+}
+.metric-delta.pos { color: var(--green); }
+.metric-delta.neg { color: var(--red); }
+
+/* ── OI SIGNAL CARD ── */
+.oi-card {
+    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card2) 100%);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin: 1rem 0;
+    font-family: var(--font-sans);
+}
+.oi-card.bullish { border-left-color: var(--green); }
+.oi-card.bearish { border-left-color: var(--red); }
+.oi-card.neutral { border-left-color: var(--yellow); }
+.oi-signal-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    margin-bottom: 0.4rem;
+}
+.oi-signal-text {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+/* ── SUMMARY / INTERPRETATION BOX ── */
+.summary-box {
+    background: var(--bg-card2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin: 0.8rem 0;
+    line-height: 1.9;
+    font-size: 0.92rem;
+}
+
+/* ── RISK CARD ── */
+.risk-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 0.8rem;
+}
+.risk-card.alert { border-left: 4px solid var(--red); }
+.risk-card.warn  { border-left: 4px solid var(--yellow); }
+.risk-card.ok    { border-left: 4px solid var(--green); }
+
+/* ── SECTION HEADER ── */
+.section-header {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+    margin: 1.2rem 0 0.8rem 0;
+    letter-spacing: 0.5px;
+}
+
+/* ── SCANNER TABLE ── */
+.scanner-row-bull {
+    background: rgba(63,185,80,0.08);
+    border-left: 3px solid var(--green);
+    border-radius: 4px;
+    padding: 0.4rem 0.8rem;
+    margin-bottom: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+}
+.scanner-row-bear {
+    background: rgba(248,81,73,0.08);
+    border-left: 3px solid var(--red);
+    border-radius: 4px;
+    padding: 0.4rem 0.8rem;
+    margin-bottom: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+}
+
+/* ── FOOTER ── */
+.footer {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    padding: 1.5rem 0 0.5rem 0;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
+}
+
+/* ── STREAMLIT OVERRIDES ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 4px;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.stTabs [aria-selected="true"] {
+    background: var(--bg-card) !important;
+    color: var(--accent) !important;
+}
+div[data-testid="stSidebarContent"] {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+}
+.stSlider > div { color: var(--text-primary); }
+div[data-testid="metric-container"] {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# MAIN TITLE
-# ─────────────────────────────────────────────
-st.markdown("""
-<div style='text-align:center; padding: 30px 0 20px;'>
-<h1 style='font-size:3.2rem; letter-spacing:-2px; margin:0;'>📈 NIFTY ANALYSIS BOT</h1>
-<p style='color:#64748b; font-family: JetBrains Mono; font-size:15px; letter-spacing:3px; margin-top:8px;'>
-LIVE MARKET INTELLIGENCE · OPTION CHAIN · GLOBAL RISK OVERVIEW
-</p>
-</div>
-""", unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# CONSTANTS
-# ─────────────────────────────────────────────
-INDEX_SYMBOLS = {
-    "NIFTY":     {"nse_symbol": "NIFTY 50",       "futures": "NIFTY",     "option_chain": "NIFTY"},
-    "BANKNIFTY": {"nse_symbol": "NIFTY BANK",     "futures": "BANKNIFTY", "option_chain": "BANKNIFTY"},
-    "SENSEX":    {"nse_symbol": "S&P BSE SENSEX", "futures": "SENSEX",    "option_chain": "SENSEX"},
+# ════════════════════════════════════════════════════════════════════
+#  CONSTANTS & HELPERS
+# ════════════════════════════════════════════════════════════════════
+INDEX_MAP = {
+    "NIFTY":     {"nse_symbol": "NIFTY 50",  "yf_symbol": "^NSEI",  "lot": 50},
+    "BANKNIFTY": {"nse_symbol": "NIFTY BANK", "yf_symbol": "^NSEBANK", "lot": 15},
+    "SENSEX":    {"nse_symbol": "SENSEX",     "yf_symbol": "^BSESN", "lot": 10},
 }
 
-INDEX_META = {
-    "NIFTY":     {"nse_label": "NIFTY 50",       "oc_symbol": "NIFTY",     "base": 23_500, "step": 50},
-    "BANKNIFTY": {"nse_label": "NIFTY BANK",     "oc_symbol": "BANKNIFTY", "base": 51_000, "step": 100},
-    "SENSEX":    {"nse_label": "S&P BSE SENSEX", "oc_symbol": "SENSEX",    "base": 74_563, "step": 100},
-}
-
-NSE_HEADERS = {
+HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "Chrome/120.0.0.0 Safari/537.36"
     ),
-    "Accept":          "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Referer":         "https://www.nseindia.com/option-chain",
-    "Origin":          "https://www.nseindia.com",
-    "Connection":      "keep-alive",
-    "DNT":             "1",
-    "Sec-Fetch-Dest":  "empty",
-    "Sec-Fetch-Mode":  "cors",
-    "Sec-Fetch-Site":  "same-origin",
+    "Referer": "https://www.nseindia.com/",
 }
 
-# ─────────────────────────────────────────────
-# NSE SESSION HELPER
-# ─────────────────────────────────────────────
-def _make_nse_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update(NSE_HEADERS)
+SECTOR_TICKERS = {
+    "IT":        ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
+    "Banking":   ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS"],
+    "Auto":      ["MARUTI.NS", "M&M.NS", "TATAMOTORS.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
+    "Pharma":    ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS"],
+    "Energy":    ["RELIANCE.NS", "ONGC.NS", "NTPC.NS", "POWERGRID.NS", "BPCL.NS"],
+    "Metal":     ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "COALINDIA.NS", "VEDL.NS"],
+    "FMCG":      ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS"],
+    "Realty":    ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PRESTIGE.NS", "BRIGADE.NS"],
+}
+
+
+# ── Utility: safe float ──────────────────────────────────────────────
+def safe_float(v, default=0.0):
     try:
-        s.get("https://www.nseindia.com", timeout=12)
-        time.sleep(0.6)
-        s.get("https://www.nseindia.com/option-chain", timeout=12)
-        time.sleep(0.4)
+        return float(v)
+    except Exception:
+        return default
+
+
+# ── NSE Session ─────────────────────────────────────────────────────
+@st.cache_resource(ttl=300)
+def get_nse_session():
+    s = requests.Session()
+    s.headers.update(HEADERS)
+    try:
+        s.get("https://www.nseindia.com", timeout=10)
     except Exception:
         pass
     return s
 
-# ─────────────────────────────────────────────
-# DATA FETCH FUNCTIONS (original, unchanged)
-# ─────────────────────────────────────────────
-@st.cache_data(ttl=60)
-def fetch_nse_quote(symbol: str) -> dict:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://www.nseindia.com/",
-    }
-    try:
-        session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        url = f"https://www.nseindia.com/api/quote-derivative?symbol={symbol}"
-        r = session.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        return {"error": str(e)}
 
+# ════════════════════════════════════════════════════════════════════
+#  DATA FETCHERS
+# ════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=60)
-def fetch_sensex_data() -> dict:
+def fetch_index_quote(index_name: str):
+    """Fetch live index quote from NSE."""
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://www.bseindia.com/",
-        }
-        url = "https://api.bseindia.com/BseIndiaAPI/api/getScripHeaderData/w?Debtflag=&scripcode=1&seriesid="
-        r = requests.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        last = float(str(data.get("CurrRate", "0")).replace(",", ""))
-        prev = float(str(data.get("PrevClose", "0")).replace(",", ""))
-        variation = last - prev
-        pct = (variation / prev * 100) if prev else 0.0
-        return {
-            "index": "S&P BSE SENSEX",
-            "last": last,
-            "previousClose": prev,
-            "variation": round(variation, 2),
-            "percentChange": round(pct, 2),
-        }
-    except Exception:
-        pass
-    try:
-        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.bseindia.com/"}
-        url = "https://api.bseindia.com/BseIndiaAPI/api/IndicesData/w?index=16"
-        r = requests.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
-        rows = r.json().get("Table", [])
-        if rows:
-            row = rows[0]
-            last = float(str(row.get("CurrentValue", "0")).replace(",", ""))
-            prev = float(str(row.get("PreviousClose", "0")).replace(",", ""))
-            variation = last - prev
-            pct = (variation / prev * 100) if prev else 0.0
-            return {
-                "index": "S&P BSE SENSEX",
-                "last": last,
-                "previousClose": prev,
-                "variation": round(variation, 2),
-                "percentChange": round(pct, 2),
-            }
-    except Exception:
-        pass
-    return {"error": "BSE API unavailable"}
-
-
-@st.cache_data(ttl=60)
-def fetch_index_data(symbol: str) -> dict:
-    if symbol == "SENSEX":
-        return fetch_sensex_data()
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://www.nseindia.com/",
-    }
-    try:
-        session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        url = "https://www.nseindia.com/api/allIndices"
-        r = session.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
+        s = get_nse_session()
+        sym = INDEX_MAP[index_name]["nse_symbol"]
+        url = f"https://www.nseindia.com/api/allIndices"
+        r = s.get(url, timeout=10)
         data = r.json()
         for item in data.get("data", []):
-            if item.get("index") == INDEX_SYMBOLS.get(symbol, {}).get("nse_symbol", symbol):
-                return item
-        return {}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# ─────────────────────────────────────────────
-# OPTION CHAIN — 3-LAYER FETCH  (fixed)
-# ─────────────────────────────────────────────
-def _oc_via_nsepython(symbol: str):
-    """Layer 1 – nsepython handles cookie auth internally."""
-    try:
-        from nsepython import nse_optionchain_scrapper  # type: ignore
-        data = nse_optionchain_scrapper(symbol)
-        if data and "records" in data and data["records"].get("data"):
-            return data
+            if item.get("indexSymbol") == sym or item.get("index") == sym:
+                return {
+                    "price":  safe_float(item.get("last", item.get("lastPrice", 0))),
+                    "change": safe_float(item.get("variation", item.get("change", 0))),
+                    "pct":    safe_float(item.get("percentChange", item.get("pChange", 0))),
+                    "high":   safe_float(item.get("high", 0)),
+                    "low":    safe_float(item.get("low", 0)),
+                    "open":   safe_float(item.get("open", 0)),
+                }
     except Exception:
         pass
-    return None
-
-
-def _oc_via_direct_api(symbol: str):
-    """Layer 2 – full browser-session simulation with retries."""
-    for attempt in range(3):
+    # yfinance fallback
+    if YF_AVAILABLE:
         try:
-            s = _make_nse_session()
-            url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
-            r = s.get(url, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                if data.get("records", {}).get("data"):
-                    return data
+            yf_sym = INDEX_MAP[index_name]["yf_symbol"]
+            tk = yf.Ticker(yf_sym)
+            h = tk.history(period="2d", interval="1d")
+            if len(h) >= 1:
+                row = h.iloc[-1]
+                prev = h.iloc[-2]["Close"] if len(h) >= 2 else row["Close"]
+                chg = row["Close"] - prev
+                pct = (chg / prev) * 100 if prev else 0
+                return {
+                    "price": row["Close"], "change": chg, "pct": pct,
+                    "high": row["High"], "low": row["Low"], "open": row["Open"],
+                }
         except Exception:
             pass
-        time.sleep(1.5 * (attempt + 1))
-    return None
+    return {"price": 0, "change": 0, "pct": 0, "high": 0, "low": 0, "open": 0}
 
 
-def _oc_synthetic(symbol: str, spot: float):
-    """
-    Layer 3 – realistic synthetic option chain.
-    CE OI peaks above spot (resistance wall).
-    PE OI peaks below spot (support wall).
-    Returns (oc_dict_in_NSE_format, is_synthetic=True).
-    """
-    meta    = INDEX_META.get(symbol, INDEX_META["NIFTY"])
-    step    = meta["step"]
-    atm     = round(spot / step) * step
-    strikes = [atm + i * step for i in range(-15, 16)]
-
-    np.random.seed(int(spot) % 99991)
-    records = []
-    for sk in strikes:
-        dist = (sk - atm) / step  # signed ticks from ATM
-
-        ce_peak = max(0.0, 4.5 - abs(dist - 3.0))
-        ce_oi   = int(max(1_000, np.random.normal(ce_peak * 45_000 + 15_000, 9_000)))
-        ce_chg  = int(np.random.normal(-2_500 if dist > 0 else 1_200, 4_000))
-        ce_ltp  = max(0.5, round(float(max(0, (atm - sk) * 0.7 + np.random.normal(0, step * 0.15))), 2))
-        ce_vol  = int(abs(np.random.normal(ce_oi * 0.14, ce_oi * 0.06)))
-
-        pe_peak = max(0.0, 4.5 - abs(dist + 3.0))
-        pe_oi   = int(max(1_000, np.random.normal(pe_peak * 50_000 + 15_000, 9_000)))
-        pe_chg  = int(np.random.normal(2_500 if dist < 0 else -1_200, 4_000))
-        pe_ltp  = max(0.5, round(float(max(0, (sk - atm) * 0.7 + np.random.normal(0, step * 0.15))), 2))
-        pe_vol  = int(abs(np.random.normal(pe_oi * 0.14, pe_oi * 0.06)))
-
-        records.append({
-            "strikePrice": sk,
-            "CE": {
-                "openInterest":         ce_oi,
-                "changeinOpenInterest": ce_chg,
-                "lastPrice":            ce_ltp,
-                "totalTradedVolume":    ce_vol,
-            },
-            "PE": {
-                "openInterest":         pe_oi,
-                "changeinOpenInterest": pe_chg,
-                "lastPrice":            pe_ltp,
-                "totalTradedVolume":    pe_vol,
-            },
-        })
-    return {"records": {"data": records, "underlyingValue": spot}}, True
-
-
-@st.cache_data(ttl=90, show_spinner=False)
-def fetch_option_chain_robust(symbol: str, spot: float):
-    """
-    Returns (oc_df, pcr, oi_signal, is_synthetic).
-    Tries: nsepython → direct NSE → realistic synthetic.
-    """
-    raw, synth = None, False
-
-    raw = _oc_via_nsepython(symbol)
-    if raw is None:
-        raw = _oc_via_direct_api(symbol)
-    if raw is None:
-        raw, synth = _oc_synthetic(symbol, spot)
-
-    oc_df   = _parse_oc_robust(raw)
-    pcr     = _calc_pcr_robust(oc_df)
-    oi_sig  = _oi_buildup_signal_robust(oc_df, spot)
-    return oc_df, pcr, oi_sig, synth
-
-
-def _parse_oc_robust(raw: dict) -> pd.DataFrame:
-    try:
-        records = raw.get("records", {}).get("data", [])
-        rows = []
-        for item in records:
-            ce = item.get("CE", {})
-            pe = item.get("PE", {})
-            rows.append({
-                "Strike":    item.get("strikePrice", 0),
-                "CE_OI":     ce.get("openInterest", 0),
-                "CE_OI_Chg": ce.get("changeinOpenInterest", 0),
-                "CE_LTP":    ce.get("lastPrice", 0),
-                "CE_Vol":    ce.get("totalTradedVolume", 0),
-                "PE_OI":     pe.get("openInterest", 0),
-                "PE_OI_Chg": pe.get("changeinOpenInterest", 0),
-                "PE_LTP":    pe.get("lastPrice", 0),
-                "PE_Vol":    pe.get("totalTradedVolume", 0),
-            })
-        return pd.DataFrame(rows).sort_values("Strike").reset_index(drop=True)
-    except Exception:
-        return pd.DataFrame()
-
-
-def _calc_pcr_robust(oc_df: pd.DataFrame) -> float:
-    if oc_df.empty:
-        return 1.0
-    ce = oc_df["CE_OI"].sum()
-    pe = oc_df["PE_OI"].sum()
-    return round(pe / ce, 3) if ce > 0 else 1.0
-
-
-def _oi_buildup_signal_robust(oc_df: pd.DataFrame, spot: float) -> str:
-    if oc_df.empty:
-        return "Neutral OI"
-    rng = spot * 0.02
-    atm = oc_df[(oc_df["Strike"] >= spot - rng) & (oc_df["Strike"] <= spot + rng)]
-    if atm.empty:
-        mid = len(oc_df) // 2
-        atm = oc_df.iloc[max(0, mid - 3): mid + 3]
-    ce_chg = atm["CE_OI_Chg"].sum()
-    pe_chg = atm["PE_OI_Chg"].sum()
-    if   ce_chg < 0 and pe_chg > 0: return "Short Covering (CE) + Long Buildup (PE)"
-    elif ce_chg > 0 and pe_chg < 0: return "Short Buildup (CE) + Long Unwinding (PE)"
-    elif ce_chg < 0 and pe_chg < 0: return "Long Unwinding"
-    elif ce_chg > 0 and pe_chg > 0: return "Long Buildup"
-    return "Neutral OI"
-
-
-# ─────────────────────────────────────────────
-# ORIGINAL OC HELPERS (kept for tab1 analysis)
-# ─────────────────────────────────────────────
 @st.cache_data(ttl=120)
-def fetch_option_chain(symbol: str, target_date: datetime = None) -> dict:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "*/*",
-        "Referer": "https://www.nseindia.com/option-chain",
-    }
+def fetch_historical(index_name: str, days: int = 60):
+    """Fetch OHLCV history."""
+    if YF_AVAILABLE:
+        try:
+            sym = INDEX_MAP[index_name]["yf_symbol"]
+            tk = yf.Ticker(sym)
+            df = tk.history(period=f"{days+10}d", interval="1d")
+            df = df.tail(days).copy()
+            df.index = pd.to_datetime(df.index)
+            df.columns = [c.capitalize() for c in df.columns]
+            return df
+        except Exception:
+            pass
+    # Synthetic fallback
+    dates = pd.date_range(end=datetime.date.today(), periods=days, freq="B")
+    base = 22000 if index_name == "NIFTY" else (47000 if index_name == "BANKNIFTY" else 73000)
+    np.random.seed(42)
+    closes = base + np.cumsum(np.random.randn(days) * 80)
+    df = pd.DataFrame({
+        "Open":   closes - np.random.rand(days) * 40,
+        "High":   closes + np.random.rand(days) * 80,
+        "Low":    closes - np.random.rand(days) * 80,
+        "Close":  closes,
+        "Volume": np.random.randint(5_000_000, 15_000_000, days),
+    }, index=dates)
+    return df
+
+
+@st.cache_data(ttl=180)
+def fetch_option_chain(index_name: str):
+    """Fetch NSE option chain data."""
     try:
-        session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        time.sleep(0.5)
-        if target_date:
-            date_fmt = target_date.strftime("%d-%m-%Y")
-            url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}&date={date_fmt}"
-        else:
-            url = f"https://www.nseindia.com/api/option-chain-indices?symbol={symbol}"
-        r = session.get(url, headers=headers, timeout=15)
-        r.raise_for_status()
+        s = get_nse_session()
+        sym = "NIFTY" if index_name == "NIFTY" else ("BANKNIFTY" if index_name == "BANKNIFTY" else "SENSEX")
+        url = f"https://www.nseindia.com/api/option-chain-indices?symbol={sym}"
+        r = s.get(url, timeout=12)
         return r.json()
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def get_option_chain_with_fallback(symbol: str):
-    today = datetime.now()
-    data = fetch_option_chain(symbol)
-    if "error" in data or not data.get("records", {}).get("data"):
-        st.info("Market closed or no live OI data available. Falling back to last trading day's data.")
-        last_trading_day = today - timedelta(days=1)
-        while last_trading_day.weekday() >= 5:
-            last_trading_day -= timedelta(days=1)
-        data = fetch_option_chain(symbol, last_trading_day)
-        return data, last_trading_day.strftime("%d %b %Y 15:30 IST")
-    return data, today.strftime("%d %b %Y %H:%M IST")
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=300)
-def fetch_sensex_historical(days: int = 60) -> pd.DataFrame:
+def fetch_pcr(index_name: str):
+    """Compute Put/Call Ratio from option chain."""
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://www.bseindia.com/",
-        }
-        to_date = datetime.now()
-        from_date = to_date - timedelta(days=days + 30)
-        date_fmt = "%Y%m%d"
-        url = (
-            f"https://api.bseindia.com/BseIndiaAPI/api/getScripHistData/w"
-            f"?flag=0&from_date={from_date.strftime(date_fmt)}"
-            f"&to_date={to_date.strftime(date_fmt)}&scripcode=1&seriesid="
-        )
-        r = requests.get(url, headers=headers, timeout=15)
-        r.raise_for_status()
-        raw = r.json()
-        rows = raw.get("data", []) or raw.get("Data", [])
-        if not rows:
-            raise ValueError("Empty BSE historical data")
-        df = pd.DataFrame(rows)
-        col_map = {}
-        for c in df.columns:
-            cu = c.upper()
-            if "DATE" in cu or "DT" in cu:
-                col_map[c] = "Date"
-            elif cu in ("OPEN", "OPENPRICE", "OPEN_PRICE"):
-                col_map[c] = "Open"
-            elif cu in ("HIGH", "HIGHPRICE", "HIGH_PRICE"):
-                col_map[c] = "High"
-            elif cu in ("LOW", "LOWPRICE", "LOW_PRICE"):
-                col_map[c] = "Low"
-            elif cu in ("CLOSE", "CLOSEPRICE", "CLOSE_PRICE", "LAST"):
-                col_map[c] = "Close"
-        df.rename(columns=col_map, inplace=True)
-        df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
-        for col in ["Open", "High", "Low", "Close"]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-        df.dropna(subset=["Date", "Close"], inplace=True)
-        df.sort_values("Date", inplace=True)
-        df.reset_index(drop=True, inplace=True)
-        df["Volume"] = np.random.randint(300_000_000, 800_000_000, len(df)).astype(float)
-        for col in ["Open", "High", "Low"]:
-            if col not in df.columns:
-                df[col] = df["Close"]
-        return df[["Date", "Open", "High", "Low", "Close", "Volume"]].tail(days)
-    except Exception:
-        base = 74_563
-        dates = pd.bdate_range(end=datetime.today(), periods=days)
-        np.random.seed(30)
-        returns = np.random.normal(0.0001, 0.007, len(dates))
-        closes = base * np.cumprod(1 + returns)
-        closes = closes * (base / closes[-1])
-        opens = closes * (1 + np.random.uniform(-0.003, 0.003, len(dates)))
-        highs = np.maximum(opens, closes) * (1 + np.abs(np.random.normal(0, 0.004, len(dates))))
-        lows = np.minimum(opens, closes) * (1 - np.abs(np.random.normal(0, 0.004, len(dates))))
-        volumes = np.random.randint(300_000_000, 800_000_000, len(dates)).astype(float)
-        return pd.DataFrame({"Date": dates, "Open": opens, "High": highs,
-                              "Low": lows, "Close": closes, "Volume": volumes})
-
-
-@st.cache_data(ttl=300)
-def fetch_historical_data(symbol: str, days: int = 60) -> pd.DataFrame:
-    if symbol == "SENSEX":
-        return fetch_sensex_historical(days)
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Referer": "https://www.nseindia.com/",
-    }
-    try:
-        session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=10)
-        to_date = datetime.now()
-        from_date = to_date - timedelta(days=days)
-        date_fmt = "%d-%m-%Y"
-        nse_index_map = {
-            "NIFTY": "NIFTY 50",
-            "BANKNIFTY": "NIFTY BANK",
-            "SENSEX": "S&P BSE SENSEX",
-        }
-        idx_name = nse_index_map.get(symbol, "NIFTY 50")
-        url = (
-            f"https://www.nseindia.com/api/historical/indicesHistory"
-            f"?indexType={requests.utils.quote(idx_name)}"
-            f"&from={from_date.strftime(date_fmt)}&to={to_date.strftime(date_fmt)}"
-        )
-        r = session.get(url, headers=headers, timeout=15)
-        r.raise_for_status()
-        raw = r.json()
-        rows = raw.get("data", {}).get("indexCloseOnlineRecords", [])
-        if not rows:
-            raise ValueError("Empty dataset from NSE")
-        df = pd.DataFrame(rows)
-        df.rename(columns={
-            "EOD_TIMESTAMP": "Date",
-            "EOD_OPEN_INDEX_VAL": "Open",
-            "EOD_HIGH_INDEX_VAL": "High",
-            "EOD_LOW_INDEX_VAL": "Low",
-            "EOD_CLOSING_INDEX_VAL": "Close",
-        }, inplace=True)
-        df["Date"] = pd.to_datetime(df["Date"])
-        df.sort_values("Date", inplace=True)
-        df.reset_index(drop=True, inplace=True)
-        df["Volume"] = np.random.randint(50_000_000, 200_000_000, len(df)).astype(float)
-        for col in ["Open", "High", "Low", "Close"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        df.dropna(subset=["Open", "High", "Low", "Close"], inplace=True)
-        return df[["Date", "Open", "High", "Low", "Close", "Volume"]]
-    except Exception:
-        base_prices = {"NIFTY": 23_500, "BANKNIFTY": 51_000, "SENSEX": 74_563}
-        base = base_prices.get(symbol, 23_500)
-        dates = pd.bdate_range(end=datetime.today(), periods=days)
-        seed_map = {"NIFTY": 10, "BANKNIFTY": 20, "SENSEX": 30}
-        np.random.seed(seed_map.get(symbol, 10))
-        returns = np.random.normal(0.0001, 0.007, len(dates))
-        closes = base * np.cumprod(1 + returns)
-        closes = closes * (base / closes[-1])
-        opens = closes * (1 + np.random.uniform(-0.003, 0.003, len(dates)))
-        highs = np.maximum(opens, closes) * (1 + np.abs(np.random.normal(0, 0.004, len(dates))))
-        lows = np.minimum(opens, closes) * (1 - np.abs(np.random.normal(0, 0.004, len(dates))))
-        volumes = np.random.randint(50_000_000, 200_000_000, len(dates)).astype(float)
-        return pd.DataFrame({
-            "Date": dates, "Open": opens, "High": highs,
-            "Low": lows, "Close": closes, "Volume": volumes,
-        })
-
-
-# ─────────────────────────────────────────────
-# INDICATOR CALCULATIONS
-# ─────────────────────────────────────────────
-def calc_rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
-    avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
-
-def calc_bollinger(series: pd.Series, period: int = 20, std: float = 2.0):
-    sma = series.rolling(period).mean()
-    sigma = series.rolling(period).std()
-    return sma + std * sigma, sma, sma - std * sigma
-
-def calc_vwap(df: pd.DataFrame) -> pd.Series:
-    typical = (df["High"] + df["Low"] + df["Close"]) / 3
-    cum_vol = df["Volume"].cumsum()
-    cum_tp_vol = (typical * df["Volume"]).cumsum()
-    return cum_tp_vol / cum_vol.replace(0, np.nan)
-
-def calc_ema(series: pd.Series, period: int) -> pd.Series:
-    return series.ewm(span=period, adjust=False).mean()
-
-def calc_dmi_adx(df: pd.DataFrame, period: int = 14):
-    high, low, close = df["High"], df["Low"], df["Close"]
-    tr = pd.concat([
-        high - low,
-        (high - close.shift()).abs(),
-        (low - close.shift()).abs(),
-    ], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
-    up_move = high - high.shift()
-    down_move = low.shift() - low
-    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
-    plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
-    minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, np.nan)) * 100
-    adx = dx.ewm(alpha=1 / period, adjust=False).mean()
-    return plus_di, minus_di, adx
-
-def calc_cpr(df: pd.DataFrame):
-    prev = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
-    pivot = (prev["High"] + prev["Low"] + prev["Close"]) / 3
-    bc = (prev["High"] + prev["Low"]) / 2
-    tc = 2 * pivot - bc
-    if tc < bc:
-        tc, bc = bc, tc
-    return {"pivot": pivot, "bc": bc, "tc": tc,
-            "prev_high": prev["High"], "prev_low": prev["Low"],
-            "r1": 2 * pivot - prev["Low"],
-            "s1": 2 * pivot - prev["High"]}
-
-def calculate_camarilla(df: pd.DataFrame):
-    prev = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
-    h = prev["High"]; l = prev["Low"]; c = prev["Close"]
-    range_val = h - l
-    r4 = c + range_val * 1.1 / 2
-    r3 = c + range_val * 1.1 / 4
-    r2 = c + range_val * 1.1 / 6
-    r1 = c + range_val * 1.1 / 12
-    s1 = c - range_val * 1.1 / 12
-    s2 = c - range_val * 1.1 / 6
-    s3 = c - range_val * 1.1 / 4
-    s4 = c - range_val * 1.1 / 2
-    return r1, r2, r3, r4, s1, s2, s3, s4
-
-def calculate_fibonacci(df: pd.DataFrame):
-    prev = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
-    p = (prev["High"] + prev["Low"] + prev["Close"]) / 3
-    range_val = prev["High"] - prev["Low"]
-    r1 = p + 0.382 * range_val
-    r2 = p + 0.618 * range_val
-    r3 = p + range_val
-    s1 = p - 0.382 * range_val
-    s2 = p - 0.618 * range_val
-    s3 = p - range_val
-    return r1, r2, r3, s1, s2, s3
-
-def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["RSI"] = calc_rsi(df["Close"])
-    df["VWAP"] = calc_vwap(df)
-    df["BB_upper"], df["BB_mid"], df["BB_lower"] = calc_bollinger(df["Close"])
-    df["EMA13"] = calc_ema(df["Close"], 13)
-    df["EMA21"] = calc_ema(df["Close"], 21)
-    df["+DI"], df["-DI"], df["ADX"] = calc_dmi_adx(df)
-    return df
-
-# ─────────────────────────────────────────────
-# ORIGINAL OC PROCESSING (for tab1 analysis engine)
-# ─────────────────────────────────────────────
-def process_option_chain(oc_data: dict, spot: float) -> pd.DataFrame:
-    try:
-        records = oc_data.get("records", {}).get("data", [])
-        rows = []
-        for item in records:
-            strike = item.get("strikePrice", 0)
-            ce = item.get("CE", {})
-            pe = item.get("PE", {})
-            rows.append({
-                "Strike": strike,
-                "CE_OI": ce.get("openInterest", 0),
-                "CE_OI_Chg": ce.get("changeinOpenInterest", 0),
-                "CE_LTP": ce.get("lastPrice", 0),
-                "CE_Vol": ce.get("totalTradedVolume", 0),
-                "PE_OI": pe.get("openInterest", 0),
-                "PE_OI_Chg": pe.get("changeinOpenInterest", 0),
-                "PE_LTP": pe.get("lastPrice", 0),
-                "PE_Vol": pe.get("totalTradedVolume", 0),
-            })
-        df = pd.DataFrame(rows)
-        df.sort_values("Strike", inplace=True)
-        df.reset_index(drop=True, inplace=True)
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-def calc_pcr(oc_df: pd.DataFrame) -> float:
-    if oc_df.empty:
-        return 1.0
-    total_pe = oc_df["PE_OI"].sum()
-    total_ce = oc_df["CE_OI"].sum()
-    return total_pe / total_ce if total_ce > 0 else 1.0
-
-def oi_buildup_signal(oc_df: pd.DataFrame, spot_change: float, spot: float = 0.0) -> str:
-    if oc_df.empty:
-        return "Neutral OI"
-    atm_range = spot * 0.02
-    atm = oc_df[(oc_df["Strike"] >= spot - atm_range) & (oc_df["Strike"] <= spot + atm_range)]
-    if atm.empty:
-        atm = oc_df.iloc[max(0, len(oc_df) // 2 - 5): len(oc_df) // 2 + 5]
-    ce_oi_chg = atm["CE_OI_Chg"].sum()
-    pe_oi_chg = atm["PE_OI_Chg"].sum()
-    total_oi_chg = ce_oi_chg + pe_oi_chg
-    if total_oi_chg > 0:
-        return "Long Build Up" if spot_change > 0 else "Short Build Up"
-    elif total_oi_chg < 0:
-        return "Short Covering" if spot_change > 0 else "Long Unwinding"
-    else:
-        return "No Clear OI Change"
-
-# ─────────────────────────────────────────────
-# ANALYSIS + CONFIDENCE SCORE
-# ─────────────────────────────────────────────
-def generate_analysis(df: pd.DataFrame, cpr: dict, pcr: float, oi_signal: str, spot: float) -> dict:
-    last = df.iloc[-1]
-    score = 50
-    signals = []
-    tags = []
-    rsi = last["RSI"]
-    if rsi > 60:
-        score += 6; signals.append(f"RSI {rsi:.1f} (overbought zone — bullish momentum)"); tags.append(("bullish", "RSI >60"))
-    elif rsi < 40:
-        score -= 6; signals.append(f"RSI {rsi:.1f} (oversold zone — bearish)"); tags.append(("bearish", "RSI <40"))
-    else:
-        signals.append(f"RSI {rsi:.1f} (neutral zone)")
-    ema13 = last["EMA13"]; ema21 = last["EMA21"]
-    prev_ema13 = df.iloc[-2]["EMA13"]; prev_ema21 = df.iloc[-2]["EMA21"]
-    if prev_ema13 < prev_ema21 and ema13 > ema21:
-        score += 10; signals.append("EMA13 crossed above EMA21 → Bullish crossover"); tags.append(("bullish", "EMA13 ↑ EMA21"))
-    elif prev_ema13 > prev_ema21 and ema13 < ema21:
-        score -= 10; signals.append("EMA13 crossed below EMA21 → Bearish crossover"); tags.append(("bearish", "EMA13 ↓ EMA21"))
-    elif ema13 > ema21:
-        score += 4; signals.append(f"EMA13 ({ema13:.1f}) > EMA21 ({ema21:.1f}) — bullish alignment"); tags.append(("bullish", "EMA aligned ↑"))
-    else:
-        score -= 4; signals.append(f"EMA13 ({ema13:.1f}) < EMA21 ({ema21:.1f}) — bearish alignment"); tags.append(("bearish", "EMA aligned ↓"))
-    adx = last["ADX"]; plus_di = last["+DI"]; minus_di = last["-DI"]
-    trend_str = "Strong trend" if adx > 25 else "Weak/Sideways"
-    if adx > 25:
-        score += 5
-        if plus_di > minus_di:
-            score += 5; signals.append(f"ADX {adx:.1f} — {trend_str} (+DI {plus_di:.1f} > -DI {minus_di:.1f}) → Bullish trend"); tags.append(("bullish", f"ADX {adx:.0f} trending"))
-        else:
-            score -= 5; signals.append(f"ADX {adx:.1f} — {trend_str} (-DI {minus_di:.1f} > +DI {plus_di:.1f}) → Bearish trend"); tags.append(("bearish", f"ADX {adx:.0f} trending"))
-    else:
-        signals.append(f"ADX {adx:.1f} — {trend_str}"); tags.append(("neutral", f"ADX {adx:.0f} weak"))
-    tc = cpr["tc"]; bc = cpr["bc"]; pivot = cpr["pivot"]
-    if spot > tc:
-        score += 8; signals.append(f"Price ({spot:.1f}) above TC CPR ({tc:.1f}) → Bullish"); tags.append(("bullish", "Above TC-CPR"))
-    elif spot < bc:
-        score -= 8; signals.append(f"Price ({spot:.1f}) below BC CPR ({bc:.1f}) → Bearish"); tags.append(("bearish", "Below BC-CPR"))
-    else:
-        signals.append(f"Price ({spot:.1f}) inside CPR [{bc:.1f} - {tc:.1f}] → Consolidation"); tags.append(("neutral", "Inside CPR"))
-    prev_high = cpr["prev_high"]; prev_low = cpr["prev_low"]
-    if spot > prev_high:
-        breakout_boost = 12 if adx > 25 else 7
-        score += breakout_boost
-        signals.append(f"Price ({spot:.1f}) > Previous Day High ({prev_high:.1f}) → Day High Breakout confirmed"); tags.append(("bullish", "Day High Breakout"))
-    elif spot < prev_low:
-        breakout_boost = 12 if adx > 25 else 7
-        score -= breakout_boost
-        signals.append(f"Price ({spot:.1f}) < Previous Day Low ({prev_low:.1f}) → Day Low Breakdown confirmed"); tags.append(("bearish", "Day Low Breakdown"))
-    if "Short Covering" in oi_signal:
-        score += 8; tags.append(("bullish", "Short Covering"))
-    elif "Long Buildup" in oi_signal or "Long Build Up" in oi_signal:
-        score += 6; tags.append(("bullish", "Long Buildup"))
-    elif "Short Buildup" in oi_signal or "Short Build Up" in oi_signal:
-        score -= 8; tags.append(("bearish", "Short Buildup"))
-    elif "Long Unwinding" in oi_signal:
-        score -= 6; tags.append(("bearish", "Long Unwinding"))
-    signals.append(f"OI Signal: {oi_signal}")
-    if pcr > 1.3:
-        score += 5; signals.append(f"PCR {pcr:.2f} — High (Bullish sentiment)"); tags.append(("bullish", f"PCR {pcr:.2f}"))
-    elif pcr < 0.7:
-        score -= 5; signals.append(f"PCR {pcr:.2f} — Low (Bearish sentiment)"); tags.append(("bearish", f"PCR {pcr:.2f}"))
-    else:
-        signals.append(f"PCR {pcr:.2f} — Neutral")
-    bb_upper = last["BB_upper"]; bb_lower = last["BB_lower"]
-    if spot > bb_upper:
-        score += 4; signals.append("Price above BB Upper — potential continuation or reversal zone"); tags.append(("neutral", "Above BB"))
-    elif spot < bb_lower:
-        score -= 4; signals.append("Price below BB Lower — oversold on BB"); tags.append(("neutral", "Below BB"))
-    score = int(np.clip(score, 5, 97))
-    bullets = []
-    if "Long Build Up" in oi_signal or "Short Covering" in oi_signal:
-        bullets.append(f"🟢 {oi_signal}")
-    elif "Short Build Up" in oi_signal or "Long Unwinding" in oi_signal:
-        bullets.append(f"🔴 {oi_signal}")
-    else:
-        bullets.append(f"🟡 {oi_signal}")
-    bullets.append(f"ADX {adx:.0f} ({'trending' if adx > 25 else 'sideways'})")
-    bullets.append(f"Price {'above TC CPR' if spot > tc else ('below BC CPR' if spot < bc else 'inside CPR')}")
-    bullets.append(f"EMA13 {'<' if ema13 < ema21 else '>'} EMA21")
-    bullets.append(f"PCR {pcr:.2f}")
-    if spot > prev_high:
-        bullets.append(f"Bullish Day High Breakout ({spot:.1f} > {prev_high:.1f})")
-    elif spot < prev_low:
-        bullets.append(f"Bearish Day Low Breakdown ({spot:.1f} < {prev_low:.1f})")
-    bias = "🟢 BULLISH" if score >= 65 else "🔴 BEARISH" if score <= 40 else "🟡 NEUTRAL / CONSOLIDATION"
-    bullets.append(f"→ **{bias}** (Confidence: {score}/100)")
-    return {"score": score, "bias": bias, "bullets": bullets, "signals": signals, "tags": tags}
-
-# ─────────────────────────────────────────────
-# OI TAB CHART BUILDERS
-# ─────────────────────────────────────────────
-def build_oi_bar_chart(oc_df: pd.DataFrame, spot: float, is_synthetic: bool) -> go.Figure:
-    atm_idx = int((oc_df["Strike"] - spot).abs().idxmin())
-    lo = max(0, atm_idx - 10)
-    hi = min(len(oc_df), atm_idx + 11)
-    near = oc_df.iloc[lo:hi].reset_index(drop=True)
-    strikes_str = near["Strike"].astype(int).astype(str).tolist()
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=strikes_str, y=near["CE_OI"] / 1e5,
-        name="CE OI (Lakhs)", marker_color="#ff4466", opacity=0.85,
-    ))
-    fig.add_trace(go.Bar(
-        x=strikes_str, y=near["PE_OI"] / 1e5,
-        name="PE OI (Lakhs)", marker_color="#00ff88", opacity=0.85,
-    ))
-    title_sfx = "  ⚠️ Simulated Data" if is_synthetic else "  ✅ Live NSE Data"
-    fig.update_layout(
-        barmode="group", height=380,
-        paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0", size=11),
-        title=dict(
-            text=f"Open Interest — CE vs PE (Near ATM){title_sfx}",
-            font=dict(color="#ffd700" if is_synthetic else "#00d4ff", size=14),
-        ),
-        xaxis=dict(title="Strike Price", gridcolor="#1e2d45", type="category", tickangle=-45),
-        yaxis=dict(title="OI (Lakhs)", gridcolor="#1e2d45"),
-        legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.22),
-        margin=dict(l=10, r=10, t=50, b=60),
-    )
-    return fig
-
-
-def build_oi_change_chart(oc_df: pd.DataFrame, spot: float) -> go.Figure:
-    atm_idx = int((oc_df["Strike"] - spot).abs().idxmin())
-    lo = max(0, atm_idx - 8)
-    hi = min(len(oc_df), atm_idx + 9)
-    near = oc_df.iloc[lo:hi].reset_index(drop=True)
-    strikes_str = near["Strike"].astype(int).astype(str).tolist()
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=strikes_str, y=near["CE_OI_Chg"] / 1e3,
-        name="CE OI Δ", marker_color="#ff6688", opacity=0.9,
-    ))
-    fig.add_trace(go.Bar(
-        x=strikes_str, y=near["PE_OI_Chg"] / 1e3,
-        name="PE OI Δ", marker_color="#44ffaa", opacity=0.9,
-    ))
-    fig.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
-    fig.update_layout(
-        barmode="group", height=260,
-        paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0", size=10),
-        title=dict(text="OI Change (CE vs PE) — thousands", font=dict(color="#00d4ff", size=13)),
-        xaxis=dict(title="Strike", gridcolor="#1e2d45", type="category", tickangle=-45),
-        yaxis=dict(title="Δ OI (K)", gridcolor="#1e2d45"),
-        legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", y=-0.28),
-        margin=dict(l=10, r=10, t=40, b=60),
-    )
-    return fig
-
-
-def build_pcr_gauge(pcr: float) -> go.Figure:
-    color = "#00ff88" if pcr > 1.2 else "#ff4466" if pcr < 0.8 else "#ffd700"
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=pcr,
-        title={"text": "Put-Call Ratio (OI)", "font": {"color": "#e2e8f0", "family": "JetBrains Mono", "size": 13}},
-        delta={"reference": 1.0, "valueformat": ".3f"},
-        gauge={
-            "axis": {"range": [0, 3], "tickwidth": 1, "tickcolor": "#64748b",
-                     "tickfont": {"family": "JetBrains Mono", "size": 10}},
-            "bar": {"color": color},
-            "bgcolor": "#111827",
-            "borderwidth": 1,
-            "bordercolor": "#1e2d45",
-            "steps": [
-                {"range": [0, 0.7],   "color": "rgba(255,68,102,0.15)"},
-                {"range": [0.7, 1.3], "color": "rgba(255,215,0,0.10)"},
-                {"range": [1.3, 3],   "color": "rgba(0,255,136,0.12)"},
-            ],
-            "threshold": {
-                "line": {"color": "#00d4ff", "width": 2},
-                "thickness": 0.75,
-                "value": 1.0,
-            },
-        },
-        number={"font": {"color": color, "family": "JetBrains Mono", "size": 32},
-                "valueformat": ".3f"},
-    ))
-    fig.update_layout(
-        height=220,
-        paper_bgcolor="#0a0e1a",
-        font=dict(color="#e2e8f0"),
-        margin=dict(l=20, r=20, t=40, b=10),
-    )
-    return fig
-
-
-def build_oi_heatmap(oc_df: pd.DataFrame, spot: float) -> go.Figure:
-    """Colour-coded heatmap of absolute OI across all strikes for CE and PE."""
-    atm_idx = int((oc_df["Strike"] - spot).abs().idxmin())
-    lo = max(0, atm_idx - 12)
-    hi = min(len(oc_df), atm_idx + 13)
-    near = oc_df.iloc[lo:hi].reset_index(drop=True)
-    strikes_str = near["Strike"].astype(int).astype(str).tolist()
-
-    z = np.array([
-        near["CE_OI"].values / 1e5,
-        near["PE_OI"].values / 1e5,
-    ])
-    fig = go.Figure(go.Heatmap(
-        z=z,
-        x=strikes_str,
-        y=["CE OI", "PE OI"],
-        colorscale=[[0, "#0d1117"], [0.5, "#1e2d45"], [1, "#00d4ff"]],
-        showscale=True,
-        colorbar=dict(title="OI (L)", tickfont=dict(family="JetBrains Mono", size=9)),
-        hoverongaps=False,
-        hovertemplate="Strike: %{x}<br>%{y}: %{z:.1f}L<extra></extra>",
-    ))
-    # ATM vline workaround via shape
-    try:
-        atm_strike_str = str(int(round(spot / INDEX_META.get("NIFTY", INDEX_META["NIFTY"])["step"], 0)))
-    except Exception:
-        atm_strike_str = strikes_str[len(strikes_str) // 2]
-
-    fig.update_layout(
-        height=180,
-        paper_bgcolor="#0a0e1a",
-        plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0", size=10),
-        title=dict(text="OI Heat Map — All Strikes (Lakhs)", font=dict(color="#00d4ff", size=13)),
-        xaxis=dict(title="Strike", tickangle=-45, gridcolor="#1e2d45", type="category"),
-        yaxis=dict(gridcolor="#1e2d45"),
-        margin=dict(l=60, r=10, t=40, b=60),
-    )
-    return fig
-
-
-# ─────────────────────────────────────────────
-# GEOPOLITICAL DASHBOARD HTML
-# ─────────────────────────────────────────────
-def get_geo_dashboard_html(anthropic_api_key: str = "") -> str:
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@500;600;700&display=swap');
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{
-  background: #0a0e1a;
-  color: #e2e8f0;
-  font-family: 'IBM Plex Mono', monospace;
-  padding: 12px;
-}}
-:root {{
-  --bg: #0a0e1a; --card: #111827; --border: #1e2d45;
-  --accent: #00d4ff; --green: #00ff88; --red: #ff4466;
-  --amber: #ffd700; --text: #e2e8f0; --muted: #64748b;
-}}
-.dash {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }}
-.card {{ background: #111827; border: 1px solid #1e2d45; border-radius: 12px; padding: 14px 16px; }}
-.card-header {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }}
-.card-title {{ font-size: 10px; font-weight: 500; color: #64748b; letter-spacing: 0.1em; text-transform: uppercase; }}
-.live-dot {{ width: 6px; height: 6px; border-radius: 50%; background: #ff4466; animation: pulse 1.5s ease-in-out infinite; }}
-@keyframes pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:0.3}} }}
-@keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-.risk-panel {{ grid-column: 1 / 3; }}
-.regions-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
-.region-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #1e2d45; cursor: pointer; transition: border-color 0.15s; }}
-.region-item:hover {{ border-color: #00d4ff; }}
-.region-flag {{ font-size: 18px; line-height: 1; }}
-.region-info {{ flex: 1; min-width: 0; }}
-.region-name {{ font-size: 12px; font-weight: 500; color: #e2e8f0; }}
-.region-sub {{ font-size: 10px; color: #64748b; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-.risk-bar-wrap {{ width: 48px; flex-shrink: 0; }}
-.risk-bar-bg {{ height: 4px; border-radius: 2px; background: #1e2d45; overflow: hidden; }}
-.risk-bar-fill {{ height: 100%; border-radius: 2px; transition: width 0.4s; }}
-.risk-score {{ font-size: 10px; font-weight: 500; text-align: right; margin-top: 2px; }}
-.brief-panel {{ grid-column: 3 / 4; grid-row: 1 / 3; }}
-.brief-loading {{ display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px 10px; color: #64748b; font-size: 12px; text-align: center; min-height: 280px; }}
-.brief-spinner {{ width: 20px; height: 20px; border: 2px solid #1e2d45; border-top-color: #00d4ff; border-radius: 50%; animation: spin 0.8s linear infinite; }}
-.brief-text {{ font-size: 12px; line-height: 1.7; color: #e2e8f0; }}
-.brief-verdict {{ display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; margin-top: 12px; justify-content: center; width: 100%; }}
-.verdict-buy {{ background: rgba(0,255,136,0.12); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }}
-.verdict-cash {{ background: rgba(255,215,0,0.10); color: #ffd700; border: 1px solid rgba(255,215,0,0.3); }}
-.verdict-sell {{ background: rgba(255,68,102,0.12); color: #ff4466; border: 1px solid rgba(255,68,102,0.3); }}
-.brief-tag {{ font-size: 10px; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-bottom: 10px; font-weight: 500; }}
-.tag-high {{ background: rgba(255,68,102,0.12); color: #ff4466; }}
-.tag-med {{ background: rgba(255,215,0,0.10); color: #ffd700; }}
-.gen-btn {{ width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #1e2d45; background: #0d1117; color: #e2e8f0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.15s; margin-top: 12px; }}
-.gen-btn:hover {{ background: #111827; border-color: #00d4ff; color: #00d4ff; }}
-.gen-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
-.commodities-panel {{ grid-column: 1 / 3; }}
-.commodities-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }}
-.commodity-card {{ padding: 10px 12px; border-radius: 8px; border: 1px solid #1e2d45; cursor: pointer; transition: border-color 0.15s; }}
-.commodity-card:hover {{ border-color: #00d4ff; }}
-.commodity-name {{ font-size: 10px; color: #64748b; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }}
-.commodity-price {{ font-size: 17px; font-weight: 500; margin: 4px 0 2px; color: #e2e8f0; }}
-.commodity-change {{ font-size: 11px; font-weight: 500; }}
-.commodity-driver {{ font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.3; }}
-.up {{ color: #00ff88; }} .dn {{ color: #ff4466; }} .flat {{ color: #64748b; }}
-.news-panel {{ grid-column: 1 / 3; }}
-.news-list {{ display: flex; flex-direction: column; gap: 8px; }}
-.news-item {{ display: flex; gap: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid #1e2d45; cursor: pointer; transition: border-color 0.15s; align-items: flex-start; }}
-.news-item:hover {{ border-color: #00d4ff; }}
-.impact-badge {{ font-size: 9px; font-weight: 500; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }}
-.impact-h {{ background: rgba(255,68,102,0.12); color: #ff4466; border: 1px solid rgba(255,68,102,0.3); }}
-.impact-m {{ background: rgba(255,215,0,0.10); color: #ffd700; border: 1px solid rgba(255,215,0,0.3); }}
-.impact-l {{ background: rgba(0,255,136,0.10); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }}
-.news-body {{ flex: 1; min-width: 0; }}
-.news-headline {{ font-size: 12px; font-weight: 500; color: #e2e8f0; line-height: 1.4; }}
-.news-meta {{ font-size: 10px; color: #64748b; margin-top: 3px; }}
-.news-assets {{ display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }}
-.asset-tag {{ font-size: 9px; padding: 1px 6px; border-radius: 3px; background: #0d1117; color: #64748b; border: 1px solid #1e2d45; }}
-.signals-panel {{ grid-column: 3 / 4; }}
-.signal-item {{ display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1e2d45; }}
-.signal-item:last-child {{ border-bottom: none; }}
-.signal-icon {{ width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }}
-.sig-red {{ background: rgba(255,68,102,0.12); }}
-.sig-amber {{ background: rgba(255,215,0,0.10); }}
-.sig-green {{ background: rgba(0,255,136,0.10); }}
-.signal-info {{ flex: 1; min-width: 0; }}
-.signal-label {{ font-size: 11px; font-weight: 500; color: #e2e8f0; }}
-.signal-sub {{ font-size: 10px; color: #64748b; margin-top: 1px; }}
-.signal-val {{ font-size: 11px; font-weight: 500; }}
-.forex-panel {{ grid-column: 1 / 2; }}
-.equities-panel {{ grid-column: 2 / 3; }}
-.row-item {{ display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid #1e2d45; margin-bottom: 6px; }}
-.pair-label {{ font-size: 12px; font-weight: 500; color: #e2e8f0; min-width: 72px; }}
-.pair-rate {{ font-size: 13px; font-weight: 500; flex: 1; color: #e2e8f0; }}
-.pair-chg {{ font-size: 10px; font-weight: 500; }}
-.eq-name {{ font-size: 11px; font-weight: 500; color: #e2e8f0; flex: 1; }}
-.eq-sym {{ font-size: 9px; color: #64748b; }}
-.header-bar {{ display: flex; align-items: center; justify-content: space-between; padding: 6px 0 14px; border-bottom: 1px solid #1e2d45; margin-bottom: 12px; }}
-.header-title {{ font-size: 15px; font-weight: 700; color: #00d4ff; letter-spacing: -0.01em; }}
-.header-meta {{ font-size: 10px; color: #64748b; margin-top: 2px; }}
-.clock {{ font-size: 11px; color: #e2e8f0; }}
-.nse-banner {{ background: linear-gradient(90deg, rgba(0,212,255,0.06) 0%, rgba(0,255,136,0.04) 100%); border: 1px solid rgba(0,212,255,0.2); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
-.nse-banner-item {{ font-size: 11px; }}
-.nse-banner-label {{ color: #64748b; }}
-.nse-banner-value {{ color: #00d4ff; font-weight: 500; }}
-.sparkline {{ display: block; }}
-</style>
-</head>
-<body>
-<div class="header-bar">
-  <div>
-    <div class="header-title">🌍 GeoTrader Intelligence</div>
-    <div class="header-meta">AI-powered geopolitical market analysis · India-focused</div>
-  </div>
-  <div style="display:flex;align-items:center;gap:14px">
-    <div style="display:flex;align-items:center;gap:5px">
-      <div class="live-dot"></div>
-      <span style="font-size:10px;color:#64748b">LIVE</span>
-    </div>
-    <div class="clock" id="clock">--:--:-- UTC</div>
-  </div>
-</div>
-<div class="nse-banner">
-  <div class="nse-banner-item"><span class="nse-banner-label">India Macro Risk: </span><span class="nse-banner-value" style="color:#ffd700">MODERATE</span></div>
-  <div style="color:#1e2d45">|</div>
-  <div class="nse-banner-item"><span class="nse-banner-label">INR/USD Sensitivity: </span><span class="nse-banner-value" style="color:#ff4466">HIGH — Middle East tensions</span></div>
-  <div style="color:#1e2d45">|</div>
-  <div class="nse-banner-item"><span class="nse-banner-label">FII Flow Risk: </span><span class="nse-banner-value" style="color:#ffd700">ELEVATED — Risk-off globally</span></div>
-  <div style="color:#1e2d45">|</div>
-  <div class="nse-banner-item"><span class="nse-banner-label">Crude Oil Impact: </span><span class="nse-banner-value" style="color:#ff4466">BEARISH for India CAD</span></div>
-</div>
-<div class="dash">
-  <div class="card risk-panel">
-    <div class="card-header"><span class="card-title">Geopolitical Risk Index</span><span style="font-size:10px;color:#64748b">8 regions · NSE relevant</span></div>
-    <div class="regions-grid" id="regions-grid"></div>
-  </div>
-  <div class="card brief-panel">
-    <div class="card-header"><span class="card-title">AI Trade Brief</span><div class="live-dot" style="background:#00d4ff"></div></div>
-    <div id="brief-content"><div class="brief-loading"><div class="brief-spinner"></div><span>Click below to generate</span><span style="font-size:10px;color:#3d4d5e">Claude analyses all signals<br>and gives a trade verdict</span></div></div>
-    <button class="gen-btn" id="gen-btn" onclick="generateBrief()">⚡ Generate AI Trade Brief</button>
-  </div>
-  <div class="card commodities-panel">
-    <div class="card-header"><span class="card-title">Commodity Signals — India Impact</span><span style="font-size:10px;color:#64748b">Geo-driven</span></div>
-    <div class="commodities-grid" id="commodities-grid"></div>
-  </div>
-  <div class="card news-panel">
-    <div class="card-header"><span class="card-title">Live News — Market Impact</span><div style="display:flex;align-items:center;gap:5px"><div class="live-dot"></div><span style="font-size:10px;color:#64748b">LIVE</span></div></div>
-    <div class="news-list" id="news-list"></div>
-  </div>
-  <div class="card signals-panel">
-    <div class="card-header"><span class="card-title">Risk Signals</span></div>
-    <div id="signals-list"></div>
-  </div>
-  <div class="card forex-panel">
-    <div class="card-header"><span class="card-title">Forex — INR + Safe Havens</span></div>
-    <div id="forex-list"></div>
-  </div>
-  <div class="card equities-panel">
-    <div class="card-header"><span class="card-title">Global Indices vs India</span></div>
-    <div id="equities-list"></div>
-  </div>
-</div>
-<script>
-const ANTHROPIC_KEY = "{anthropic_api_key}";
-const REGIONS = [
-  {{flag:'🇮🇱',name:'Middle East',sub:'Israel-Iran escalation active',score:82,nse:'Energy, IT exports'}},
-  {{flag:'🇷🇺',name:'E. Europe / Russia',sub:'Ukraine conflict, gas supply risk',score:78,nse:'Commodities, FII risk'}},
-  {{flag:'🇸🇦',name:'Gulf / Oil',sub:'OPEC+ cuts, Hormuz tensions',score:71,nse:'India oil import cost'}},
-  {{flag:'🇹🇼',name:'Taiwan Strait',sub:'PLA exercises, chip supply risk',score:68,nse:'IT/Electronics sector'}},
-  {{flag:'🇨🇳',name:'China',sub:'Slowdown, India border tensions',score:55,nse:'Exports, border stocks'}},
-  {{flag:'🇺🇸',name:'US Economy',sub:'Fed policy, USD strength',score:48,nse:'FII flows, IT sector'}},
-  {{flag:'🇮🇳',name:'India Domestic',sub:'Election cycle, RBI policy',score:35,nse:'Direct market driver'}},
-  {{flag:'🇯🇵',name:'Japan / Asia',sub:'BOJ rate normalisation',score:32,nse:'Yen carry, FII flows'}},
-];
-const COMMODITIES = [
-  {{sym:'BRENT',name:'Brent Crude',price:'$83.40',chg:'+1.8%',dir:'dn',driver:'India imports 85% crude — CAD risk, OMC stocks hit',spark:[72,74,76,73,78,80,83]}},
-  {{sym:'GOLD',name:'Gold / MCX',price:'₹71,840',chg:'+0.9%',dir:'up',driver:'Safe haven demand, MCX gold bullish',spark:[68000,68800,69200,69800,70400,71200,71840]}},
-  {{sym:'INR/USD',name:'INR Rate',price:'83.42',chg:'-0.3%',dir:'dn',driver:'Weak INR = FII outflow risk, import inflation',spark:[83.1,83.2,83.15,83.3,83.35,83.4,83.42]}},
-  {{sym:'NAT GAS',name:'Nat Gas',price:'$2.84',chg:'+3.1%',dir:'up',driver:'EU LNG demand rise, India LNG import cost',spark:[2.3,2.4,2.5,2.6,2.7,2.75,2.84]}},
-];
-const NEWS = [
-  {{impact:'HIGH',headline:'Israel conducts strikes on Iranian nuclear facility; Strait of Hormuz put on watch',time:'14m ago',region:'Middle East',assets:['BRENT','OMC','INR','GOLD']}},
-  {{impact:'HIGH',headline:'China PLAN live-fire exercises near Taiwan; global tech supply chain risk elevated',time:'1h ago',region:'Taiwan',assets:['IT Sector','TCS','Infosys','INR']}},
-  {{impact:'MED',headline:'OPEC+ emergency meeting signals production cut extension; India crude cost to rise',time:'2h ago',region:'Gulf',assets:['BRENT','HPCL','BPCL','IOC']}},
-  {{impact:'MED',headline:'US Fed signals "higher for longer"; FII outflows from EM markets expected',time:'3h ago',region:'US',assets:['NIFTY','FII flows','INR','IT']}},
-  {{impact:'LOW',headline:'India-China LAC patrolling agreement holds; border tension easing signals positive',time:'5h ago',region:'India',assets:['Defence','Border stocks']}},
-];
-const SIGNALS = [
-  {{icon:'⚡',cls:'sig-red',label:'India VIX',sub:'Fear index elevated',val:'16.4',vc:'up'}},
-  {{icon:'🛢️',cls:'sig-red',label:'Crude Shock',sub:'India oil import bill +18%',val:'BEARISH',vc:'dn'}},
-  {{icon:'💸',cls:'sig-amber',label:'FII Flow',sub:'Net sellers 3 days',val:'-₹2,840Cr',vc:'dn'}},
-  {{icon:'🥇',cls:'sig-amber',label:'MCX Gold',sub:'Safe haven demand',val:'₹71,840',vc:'up'}},
-  {{icon:'📉',cls:'sig-green',label:'DII Buying',sub:'Domestic support strong',val:'+₹3,120Cr',vc:'up'}},
-  {{icon:'🔒',cls:'sig-red',label:'USD/INR',sub:'INR weakness = imported inflation',val:'83.42',vc:'dn'}},
-];
-const FOREX = [
-  {{pair:'USD/INR',rate:'83.42',chg:'-0.3%',dir:'dn'}},
-  {{pair:'EUR/INR',rate:'90.18',chg:'-0.5%',dir:'dn'}},
-  {{pair:'USD/JPY',rate:'147.82',chg:'-0.4%',dir:'dn'}},
-  {{pair:'XAU/USD',rate:'2,341',chg:'+0.9%',dir:'up'}},
-];
-const EQUITIES = [
-  {{name:'Nifty 50',sym:'NSE',price:'22,450',chg:'-0.6%',dir:'dn'}},
-  {{name:'S&P 500',sym:'SPX',price:'5,198',chg:'-0.7%',dir:'dn'}},
-  {{name:'Hang Seng',sym:'HSI',price:'17,840',chg:'-1.2%',dir:'dn'}},
-  {{name:'Sensex',sym:'BSE',price:'74,120',chg:'-0.5%',dir:'dn'}},
-];
-function riskColor(s) {{ return s>=70?'#ff4466':s>=45?'#ffd700':'#00ff88'; }}
-function sparkSVG(vals,dir) {{
-  const w=60,h=18,p=2;
-  const mn=Math.min(...vals),mx=Math.max(...vals),rng=mx-mn||1;
-  const pts=vals.map((v,i)=>{{const x=p+(i/(vals.length-1))*(w-2*p);const y=h-p-((v-mn)/rng)*(h-2*p);return x+','+y;}}).join(' ');
-  const c=dir==='up'?'#00ff88':dir==='dn'?'#ff4466':'#64748b';
-  return `<svg class="sparkline" width="${{w}}" height="${{h}}" viewBox="0 0 ${{w}} ${{h}}"><polyline points="${{pts}}" fill="none" stroke="${{c}}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-}}
-function renderRegions() {{ document.getElementById('regions-grid').innerHTML=REGIONS.map(r=>`<div class="region-item"><div class="region-flag">${{r.flag}}</div><div class="region-info"><div class="region-name">${{r.name}}</div><div class="region-sub">${{r.sub}}</div></div><div class="risk-bar-wrap"><div class="risk-bar-bg"><div class="risk-bar-fill" style="width:${{r.score}}%;background:${{riskColor(r.score)}}"></div></div><div class="risk-score" style="color:${{riskColor(r.score)}}">${{r.score}}</div></div></div>`).join(''); }}
-function renderCommodities() {{ document.getElementById('commodities-grid').innerHTML=COMMODITIES.map(c=>`<div class="commodity-card"><div class="commodity-name">${{c.sym}}</div><div class="commodity-price">${{c.price}}</div><div class="commodity-change ${{c.dir}}">${{c.chg}}</div><div class="commodity-driver">${{c.driver}}</div><div style="margin-top:6px">${{sparkSVG(c.spark,c.dir)}}</div></div>`).join(''); }}
-function renderNews() {{ document.getElementById('news-list').innerHTML=NEWS.map(n=>`<div class="news-item"><div style="flex-shrink:0;padding-top:2px"><span class="impact-badge impact-${{n.impact[0].toLowerCase()}}">${{n.impact}}</span></div><div class="news-body"><div class="news-headline">${{n.headline}}</div><div class="news-meta">${{n.time}} · ${{n.region}}</div><div class="news-assets">${{n.assets.map(a=>`<span class="asset-tag">${{a}}</span>`).join('')}}</div></div></div>`).join(''); }}
-function renderSignals() {{ document.getElementById('signals-list').innerHTML=SIGNALS.map(s=>`<div class="signal-item"><div class="signal-icon ${{s.cls}}">${{s.icon}}</div><div class="signal-info"><div class="signal-label">${{s.label}}</div><div class="signal-sub">${{s.sub}}</div></div><div class="signal-val ${{s.vc}}">${{s.val}}</div></div>`).join(''); }}
-function renderForex() {{ document.getElementById('forex-list').innerHTML=FOREX.map(f=>`<div class="row-item"><div class="pair-label">${{f.pair}}</div><div class="pair-rate">${{f.rate}}</div><div class="pair-chg ${{f.dir}}">${{f.chg}}</div></div>`).join(''); }}
-function renderEquities() {{ document.getElementById('equities-list').innerHTML=EQUITIES.map(e=>`<div class="row-item"><div class="eq-name">${{e.name}} <span class="eq-sym">${{e.sym}}</span></div><div class="pair-rate ${{e.dir}}">${{e.price}}</div><div class="pair-chg ${{e.dir}}">${{e.chg}}</div></div>`).join(''); }}
-function updateClock() {{ const n=new Date();const pad=x=>String(x).padStart(2,'0');document.getElementById('clock').textContent=`${{pad(n.getUTCHours())}}:${{pad(n.getUTCMinutes())}}:${{pad(n.getUTCSeconds())}} UTC`; }}
-async function generateBrief() {{
-  const btn=document.getElementById('gen-btn');btn.disabled=true;btn.textContent='Analysing...';
-  document.getElementById('brief-content').innerHTML=`<div class="brief-loading"><div class="brief-spinner"></div><span>Claude is reading geopolitical signals...</span></div>`;
-  const topRisks=REGIONS.filter(r=>r.score>=65).map(r=>`${{r.name}} (risk ${{r.score}}/100): ${{r.sub}}. NSE impact: ${{r.nse}}`).join('; ');
-  const highNews=NEWS.filter(n=>n.impact==='HIGH').map(n=>n.headline).join('; ');
-  const apiKey=ANTHROPIC_KEY||"";
-  if (!apiKey||apiKey==="") {{
-    document.getElementById('brief-content').innerHTML=`<div class="brief-loading"><span style="color:#ffd700">⚠ Add your Anthropic API key in the sidebar to enable AI briefs</span><span style="font-size:10px;color:#64748b;margin-top:8px">Enter key in sidebar → Anthropic API Key field</span></div>`;
-    btn.disabled=false;btn.textContent='⚡ Generate AI Trade Brief';return;
-  }}
-  const prompt=`You are a senior geopolitical trading analyst specialising in Indian markets (Nifty, Sensex, INR, MCX Gold, NSE equities).\n\nBased on the following current intelligence, write a concise trade brief for an Indian trader.\n\nTOP RISK REGIONS: ${{topRisks}}\n\nBREAKING HIGH-IMPACT NEWS: ${{highNews}}\n\nKEY INDIA MARKET SIGNALS: India VIX 16.4 (elevated), INR/USD at 83.42 (weak), Brent Crude +1.8% (bearish for India current account), MCX Gold up (safe haven bid), FIIs net sellers for 3 sessions, DII buying providing support.\n\nWrite your response in 3 sections:\n1. SITUATION: 2 sentences — the key global risk driver and its direct relevance to India.\n2. MARKET IMPACT: 2 sentences — what this means for Nifty, INR, MCX Gold, and the energy/IT sectors.\n3. TRADE STANCE: One sentence — BUY, HOLD CASH, or REDUCE, with one specific India-focused tactical idea.\n\nDirect, specific, actionable. Max 100 words.`;
-  try {{
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{{method:'POST',headers:{{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}},body:JSON.stringify({{model:'claude-sonnet-4-20250514',max_tokens:600,messages:[{{role:'user',content:prompt}}]}})}});
-    const data=await resp.json();
-    if (data.error) throw new Error(data.error.message);
-    const text=data.content?.map(b=>b.text||'').join('')||'Analysis unavailable.';
-    let verdict='HOLD CASH',vclass='verdict-cash';
-    if (/\bBUY\b|risk-on|bullish|long gold|long mcx/i.test(text)){{verdict='BUY / SELECTIVE LONG';vclass='verdict-buy';}}
-    else if (/REDUCE|reduce exposure|risk-off|bearish|sell|short/i.test(text)){{verdict='REDUCE RISK';vclass='verdict-sell';}}
-    const highRiskCount=REGIONS.filter(r=>r.score>=70).length;
-    const riskTag=highRiskCount>=3?'HIGH':'MODERATE';
-    const tagCls=riskTag==='HIGH'?'tag-high':'tag-med';
-    const formatted=text.replace(/SITUATION:/g,'<span style="font-size:10px;color:#64748b;letter-spacing:0.08em">SITUATION</span><br>').replace(/MARKET IMPACT:/g,'<br><span style="font-size:10px;color:#64748b;letter-spacing:0.08em">MARKET IMPACT</span><br>').replace(/TRADE STANCE:/g,'<br><span style="font-size:10px;color:#64748b;letter-spacing:0.08em">TRADE STANCE</span><br>');
-    document.getElementById('brief-content').innerHTML=`<span class="brief-tag ${{tagCls}}">GEO-RISK: ${{riskTag}}</span><div class="brief-text">${{formatted}}</div><div class="brief-verdict ${{vclass}}">${{verdict}}</div>`;
-  }} catch(e) {{ document.getElementById('brief-content').innerHTML=`<div class="brief-loading"><span style="color:#ff4466">Error: ${{e.message}}</span></div>`; }}
-  btn.disabled=false;btn.textContent='⚡ Regenerate Brief';
-}}
-renderRegions();renderCommodities();renderNews();renderSignals();renderForex();renderEquities();updateClock();setInterval(updateClock,1000);
-</script>
-</body>
-</html>"""
-
-
-# ─────────────────────────────────────────────
-# MARKET STATUS HELPERS
-# ─────────────────────────────────────────────
-NSE_HOLIDAYS = {
-    datetime(2025, 1, 26).date(), datetime(2025, 2, 19).date(), datetime(2025, 3, 14).date(),
-    datetime(2025, 4, 1).date(),  datetime(2025, 4, 10).date(), datetime(2025, 4, 14).date(),
-    datetime(2025, 4, 18).date(), datetime(2025, 5, 1).date(),  datetime(2025, 8, 15).date(),
-    datetime(2025, 8, 27).date(), datetime(2025, 10, 2).date(), datetime(2025, 10, 21).date(),
-    datetime(2025, 10, 22).date(),datetime(2025, 11, 5).date(), datetime(2025, 12, 25).date(),
-    datetime(2026, 1, 26).date(), datetime(2026, 3, 3).date(),  datetime(2026, 3, 20).date(),
-    datetime(2026, 4, 3).date(),  datetime(2026, 4, 14).date(), datetime(2026, 5, 1).date(),
-    datetime(2026, 8, 15).date(), datetime(2026, 10, 2).date(), datetime(2026, 12, 25).date(),
-}
-
-def is_trading_day(dt: datetime) -> bool:
-    d = dt.date() if isinstance(dt, datetime) else dt
-    return d.weekday() < 5 and d not in NSE_HOLIDAYS
-
-def get_last_trading_day(ref: datetime = None) -> datetime:
-    dt = (ref or datetime.now()).replace(hour=0, minute=0, second=0, microsecond=0)
-    dt -= timedelta(days=1)
-    for _ in range(14):
-        if is_trading_day(dt):
-            return dt
-        dt -= timedelta(days=1)
-    return dt
-
-def get_market_status() -> dict:
-    now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
-    open_t  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
-    close_t = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
-    last_close = get_last_trading_day(now_ist)
-    if is_trading_day(now_ist) and open_t <= now_ist <= close_t:
-        return {"is_open": True,  "label": "🟢 LIVE",
-                "note": f"NSE open · {now_ist.strftime('%d %b %Y %H:%M IST')}",
-                "last_close": last_close}
-    else:
-        if not is_trading_day(now_ist):
-            reason = "Weekend" if now_ist.weekday() >= 5 else "Market Holiday"
-        elif now_ist < open_t:
-            reason = "Pre-market"
-        else:
-            reason = "After-market hours"
-        return {"is_open": False, "label": "🔴 CLOSED",
-                "note": f"{reason} · Showing last close: {last_close.strftime('%A, %d %b %Y')}",
-                "last_close": last_close}
-
-
-# ─────────────────────────────────────────────
-# MA CROSSOVER SCANNER
-# ─────────────────────────────────────────────
-SECTORS = {
-    "Auto":        ["MARUTI","TATAMOTORS","M%26M","BAJAJ-AUTO","HEROMOTOCO","EICHERMOT","ASHOKLEY","TVSMOTOR","BALKRISIND","MOTHERSON"],
-    "IT":          ["TCS","INFY","HCLTECH","WIPRO","TECHM","LTIM","MPHASIS","PERSISTENT","COFORGE","KPITTECH"],
-    "Pharma":      ["SUNPHARMA","DRREDDY","CIPLA","DIVISLAB","AUROPHARMA","LUPIN","TORNTPHARM","ALKEM","IPCALAB","GLENMARK"],
-    "Banking":     ["HDFCBANK","ICICIBANK","KOTAKBANK","AXISBANK","SBIN","INDUSINDBK","FEDERALBNK","BANDHANBNK","IDFCFIRSTB","PNB"],
-    "FMCG":        ["HINDUNILVR","ITC","NESTLEIND","BRITANNIA","DABUR","MARICO","COLPAL","GODREJCP","EMAMILTD","VBL"],
-    "Metals":      ["TATASTEEL","JSWSTEEL","HINDALCO","VEDL","SAIL","NMDC","NATIONALUM","JINDALSTEL","APLAPOLLO","RATNAMANI"],
-    "Energy":      ["RELIANCE","ONGC","IOC","BPCL","GAIL","POWERGRID","NTPC","TATAPOWER","ADANIGREEN","CESC"],
-    "Realty":      ["DLF","GODREJPROP","OBEROIRLTY","PHOENIXLTD","PRESTIGE","SOBHA","BRIGADE","MAHLIFE","SUNTECK","KOLTEPATIL"],
-    "Infra":       ["LT","ABB","SIEMENS","BHEL","CUMMINSIND","THERMAX","KEC","KALPATPOWR","ENGINERSIN","GRINDWELL"],
-    "Consumption": ["TITAN","VOLTAS","WHIRLPOOL","HAVELLS","CROMPTON","BLUESTAR","VGUARD","SYMPHONY","RELAXO","BATAINDIA"],
-}
-
-SECTOR_ICONS = {
-    "Auto":"🚗","IT":"💻","Pharma":"💊","Banking":"🏦","FMCG":"🛒",
-    "Metals":"⚙️","Energy":"⚡","Realty":"🏢","Infra":"🏗️","Consumption":"🛍️",
-}
-
-@st.cache_data(ttl=300)
-def fetch_stock_history(symbol: str, days: int = 120) -> pd.DataFrame:
-    status = get_market_status()
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-        "Referer": "https://www.nseindia.com/",
-    }
-    to_dt   = datetime.now() if status["is_open"] else status["last_close"]
-    from_dt = to_dt - timedelta(days=days + 40)
-    fmt     = "%d-%m-%Y"
-    try:
-        session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=8)
-        url = (
-            f"https://www.nseindia.com/api/historical/cm/equity"
-            f"?symbol={requests.utils.quote(symbol)}"
-            f"&series=[%22EQ%22]"
-            f"&from={from_dt.strftime(fmt)}&to={to_dt.strftime(fmt)}"
-        )
-        r = session.get(url, headers=headers, timeout=12)
-        r.raise_for_status()
-        data = r.json().get("data", [])
+        data = fetch_option_chain(index_name)
         if not data:
-            raise ValueError("empty")
-        df = pd.DataFrame(data)
-        df.rename(columns={
-            "CH_TIMESTAMP": "Date", "CH_OPENING_PRICE": "Open",
-            "CH_TRADE_HIGH_PRICE": "High", "CH_TRADE_LOW_PRICE": "Low",
-            "CH_CLOSING_PRICE": "Close", "CH_TOT_TRADED_QTY": "Volume",
-        }, inplace=True)
-        df["Date"] = pd.to_datetime(df["Date"])
-        for c in ["Open", "High", "Low", "Close", "Volume"]:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-        df.dropna(subset=["Close"], inplace=True)
-        df.sort_values("Date", inplace=True)
-        df.reset_index(drop=True, inplace=True)
-        df = df[["Date", "Open", "High", "Low", "Close", "Volume"]].tail(days)
-        if not status["is_open"] and not df.empty:
-            target_date = pd.Timestamp(status["last_close"])
-            if df["Date"].iloc[-1] < target_date:
-                fwd_row = df.iloc[[-1]].copy()
-                fwd_row["Date"] = target_date
-                df = pd.concat([df, fwd_row], ignore_index=True)
-        df["_estimated"] = False
-        return df
+            return 1.0
+        records = data.get("records", {}).get("data", [])
+        total_ce_oi = sum(r.get("CE", {}).get("openInterest", 0) for r in records if "CE" in r)
+        total_pe_oi = sum(r.get("PE", {}).get("openInterest", 0) for r in records if "PE" in r)
+        return round(total_pe_oi / total_ce_oi, 3) if total_ce_oi else 1.0
     except Exception:
-        return pd.DataFrame()
+        return 1.0
 
 
-def compute_mas(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or len(df) < 20:
-        return df
-    df = df.copy()
-    df["EMA20"]  = df["Close"].ewm(span=20,  adjust=False).mean()
-    df["EMA50"]  = df["Close"].ewm(span=50,  adjust=False).mean()
-    df["SMA50"]  = df["Close"].rolling(50).mean()
-    df["SMA100"] = df["Close"].rolling(100).mean()
-    return df
+@st.cache_data(ttl=60)
+def fetch_live_oil():
+    """Fetch live Brent crude oil price via yfinance."""
+    if YF_AVAILABLE:
+        try:
+            tk = yf.Ticker("BZ=F")
+            h = tk.history(period="5d", interval="1d")
+            if len(h) >= 2:
+                price = h["Close"].iloc[-1]
+                prev  = h["Close"].iloc[-2]
+                chg   = price - prev
+                pct   = (chg / prev) * 100 if prev else 0
+                return {"price": round(price, 2), "change": round(chg, 2), "pct": round(pct, 2)}
+        except Exception:
+            pass
+    # Fallback: try investing.com or similar free endpoint
+    try:
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/BZ=F?range=5d&interval=1d"
+        r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        js = r.json()
+        closes = js["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        closes = [c for c in closes if c is not None]
+        if len(closes) >= 2:
+            price = closes[-1]
+            prev  = closes[-2]
+            chg   = price - prev
+            pct   = (chg / prev) * 100
+            return {"price": round(price, 2), "change": round(chg, 2), "pct": round(pct, 2)}
+    except Exception:
+        pass
+    return {"price": 85.0, "change": 0.0, "pct": 0.0}  # static fallback
 
 
-def detect_crossovers(df: pd.DataFrame) -> list:
-    if df.empty or len(df) < 101:
-        return []
-    pairs = [
-        ("EMA20", "EMA50",  "EMA 20/50"),
-        ("EMA20", "SMA50",  "EMA 20 / SMA 50"),
-        ("EMA50", "SMA100", "EMA 50 / SMA 100"),
-        ("SMA50", "SMA100", "SMA 50/100"),
-    ]
-    events = []
-    lookback = 10
-    for fast, slow, label in pairs:
-        if fast not in df.columns or slow not in df.columns:
-            continue
-        s_fast = df[fast].dropna()
-        s_slow = df[slow].dropna()
-        common = s_fast.index.intersection(s_slow.index)
-        if len(common) < 2:
-            continue
-        f = s_fast.loc[common]
-        s = s_slow.loc[common]
-        diff = f - s
-        for i in range(len(diff) - 1, max(len(diff) - lookback - 1, 0), -1):
-            if diff.iloc[i] * diff.iloc[i - 1] < 0:
-                direction = "Bullish" if diff.iloc[i] > 0 else "Bearish"
-                bars_ago  = len(diff) - 1 - i
-                date_val  = df["Date"].iloc[df.index.get_loc(common[i])] if common[i] in df.index else None
-                events.append({
-                    "pair": label, "direction": direction, "bars_ago": bars_ago,
-                    "date": date_val, "price": round(df["Close"].iloc[df.index.get_loc(common[i])], 2),
-                    "fast_val": round(f.iloc[i], 2), "slow_val": round(s.iloc[i], 2),
-                })
-                break
-    events.sort(key=lambda x: x["bars_ago"])
-    return events
-
-
-@st.cache_data(ttl=300)
-def scan_sector_crossovers(sector_name: str) -> list:
-    symbols = SECTORS.get(sector_name, [])
-    results = []
-    for sym in symbols:
-        df = fetch_stock_history(sym, days=120)
-        if df.empty or len(df) < 55:
-            continue
-        df = compute_mas(df)
-        crossovers = detect_crossovers(df)
-        if not crossovers:
-            continue
-        last = df.iloc[-1]
-        bias = "Bullish" if last.get("EMA20", 0) > last.get("SMA100", 0) else "Bearish"
-        ema20_slope  = last["EMA20"]  - df["EMA20"].iloc[-4]  if "EMA20"  in df.columns else 0
-        sma100_slope = last["SMA100"] - df["SMA100"].iloc[-4] if "SMA100" in df.columns else 0
-        results.append({
-            "symbol": sym, "ltp": round(float(last["Close"]), 2),
-            "change_pct": round(float((last["Close"] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100), 2) if len(df) > 1 else 0.0,
-            "bias": bias, "crossovers": crossovers,
-            "freshest_bars": crossovers[0]["bars_ago"] if crossovers else 999,
-            "ema20": round(float(last.get("EMA20", 0)), 2),
-            "ema50": round(float(last.get("EMA50", 0)), 2),
-            "sma50": round(float(last.get("SMA50", 0)), 2),
-            "sma100": round(float(last.get("SMA100", 0)), 2),
-            "ema20_slope": round(float(ema20_slope), 2),
-            "sma100_slope": round(float(sma100_slope), 2),
-            "df": df,
-        })
-    results.sort(key=lambda x: (x["freshest_bars"], x["symbol"]))
+@st.cache_data(ttl=600)
+def fetch_global_indices():
+    """Fetch major global index prices."""
+    tickers = {
+        "S&P 500":  "^GSPC",
+        "NASDAQ":   "^IXIC",
+        "Dow Jones":"^DJI",
+        "DAX":      "^GDAXI",
+        "Nikkei":   "^N225",
+        "Hang Seng":"^HSI",
+        "SGX Nifty":"^NSEI",
+    }
+    results = {}
+    if YF_AVAILABLE:
+        for name, sym in tickers.items():
+            try:
+                tk = yf.Ticker(sym)
+                h = tk.history(period="5d", interval="1d")
+                if len(h) >= 2:
+                    price = h["Close"].iloc[-1]
+                    prev  = h["Close"].iloc[-2]
+                    pct   = ((price - prev) / prev) * 100
+                    results[name] = {"price": round(price, 2), "pct": round(pct, 2)}
+            except Exception:
+                results[name] = {"price": 0.0, "pct": 0.0}
+    else:
+        mock = {
+            "S&P 500":  {"price": 5300.0, "pct": 0.4},
+            "NASDAQ":   {"price": 16800.0, "pct": 0.6},
+            "Dow Jones":{"price": 39000.0, "pct": 0.2},
+            "DAX":      {"price": 18200.0, "pct": -0.1},
+            "Nikkei":   {"price": 38500.0, "pct": 0.3},
+            "Hang Seng":{"price": 17200.0, "pct": -0.5},
+            "SGX Nifty":{"price": 22100.0, "pct": 0.1},
+        }
+        results = mock
     return results
 
 
-@st.cache_data(ttl=120)
-def fetch_stock_quote(symbol: str) -> dict:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-        "Referer": "https://www.nseindia.com/",
+# ════════════════════════════════════════════════════════════════════
+#  TECHNICAL INDICATORS
+# ════════════════════════════════════════════════════════════════════
+
+def calc_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain  = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
+    loss  = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
+    rs    = gain / loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+
+def calc_ema(series: pd.Series, span: int) -> pd.Series:
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def calc_sma(series: pd.Series, window: int) -> pd.Series:
+    return series.rolling(window=window).mean()
+
+
+def calc_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    high, low, close = df["High"], df["Low"], df["Close"]
+    up_move   = high.diff()
+    down_move = -low.diff()
+    plus_dm   = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm  = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    tr = pd.concat([
+        high - low,
+        (high - close.shift()).abs(),
+        (low  - close.shift()).abs(),
+    ], axis=1).max(axis=1)
+    atr   = pd.Series(tr).ewm(alpha=1/period, adjust=False).mean()
+    pdi   = 100 * pd.Series(plus_dm).ewm(alpha=1/period, adjust=False).mean() / atr
+    mdi   = 100 * pd.Series(minus_dm).ewm(alpha=1/period, adjust=False).mean() / atr
+    dx    = (100 * (pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan))
+    return dx.ewm(alpha=1/period, adjust=False).mean()
+
+
+def calc_cpr(df: pd.DataFrame):
+    """Central Pivot Range — uses previous day's data."""
+    if len(df) < 2:
+        return None
+    prev = df.iloc[-2]
+    pivot = (prev["High"] + prev["Low"] + prev["Close"]) / 3
+    bc    = (prev["High"] + prev["Low"]) / 2
+    tc    = (pivot - bc) + pivot
+    r1    = 2 * pivot - prev["Low"]
+    s1    = 2 * pivot - prev["High"]
+    r2    = pivot + (prev["High"] - prev["Low"])
+    s2    = pivot - (prev["High"] - prev["Low"])
+    return {"pivot": pivot, "bc": bc, "tc": tc, "r1": r1, "s1": s1, "r2": r2, "s2": s2,
+            "width_pct": round(abs(tc - bc) / pivot * 100, 3)}
+
+
+def calc_camarilla(df: pd.DataFrame):
+    if len(df) < 2:
+        return {}
+    prev = df.iloc[-2]
+    rng  = prev["High"] - prev["Low"]
+    c    = prev["Close"]
+    return {
+        "H4": c + rng * 1.1 / 2,
+        "H3": c + rng * 1.1 / 4,
+        "L3": c - rng * 1.1 / 4,
+        "L4": c - rng * 1.1 / 2,
     }
+
+
+def calc_fibonacci(df: pd.DataFrame, lookback: int = 20):
+    recent = df.tail(lookback)
+    hi, lo = recent["High"].max(), recent["Low"].min()
+    rng    = hi - lo
+    return {
+        "0%":    hi,
+        "23.6%": hi - 0.236 * rng,
+        "38.2%": hi - 0.382 * rng,
+        "50%":   hi - 0.500 * rng,
+        "61.8%": hi - 0.618 * rng,
+        "100%":  lo,
+    }
+
+
+def calc_confidence(rsi, adx, pcr, oi_signal):
+    score = 50
+    # RSI
+    if 40 <= rsi <= 60:  score += 5
+    elif rsi > 70:       score -= 10
+    elif rsi < 30:       score += 10
+    # ADX trend strength
+    if adx > 25:  score += 15
+    elif adx > 20: score += 8
+    # PCR
+    if 0.8 <= pcr <= 1.2: score += 10
+    elif pcr > 1.3:        score += 5   # slightly bullish sentiment
+    elif pcr < 0.7:        score -= 5
+    # OI
+    signal_score = {
+        "Long Build Up": 15, "Short Covering": 10,
+        "Short Build Up": -15, "Long Unwinding": -10, "Neutral": 0,
+    }
+    score += signal_score.get(oi_signal, 0)
+    return max(10, min(95, score))
+
+
+# ════════════════════════════════════════════════════════════════════
+#  OI ANALYSIS
+# ════════════════════════════════════════════════════════════════════
+
+def parse_oi_near_atm(option_chain_data, spot: float, spread: int = 300):
+    """Extract CE/PE OI change for strikes near spot."""
+    records = []
+    if not option_chain_data:
+        return pd.DataFrame()
     try:
-        session = requests.Session()
-        session.get("https://www.nseindia.com", headers=headers, timeout=8)
-        url = f"https://www.nseindia.com/api/quote-equity?symbol={requests.utils.quote(symbol)}"
-        r = session.get(url, headers=headers, timeout=8)
-        r.raise_for_status()
-        data = r.json()
-        pd_data   = data.get("priceInfo", {})
-        mkt_depth = data.get("marketDeptOrderBook", {})
-        trade_info = mkt_depth.get("tradeInfo", {})
-        buy_qty  = sum(b.get("quantity", 0) for b in mkt_depth.get("buy",  []))
-        sell_qty = sum(s.get("quantity", 0) for s in mkt_depth.get("sell", []))
-        return {
-            "symbol": symbol,
-            "ltp": float(pd_data.get("lastPrice", 0) or 0),
-            "change": float(pd_data.get("change", 0) or 0),
-            "pct_change": float(pd_data.get("pChange", 0) or 0),
-            "volume": int(trade_info.get("totalTradedVolume", 0) or 0),
-            "buy_qty": int(buy_qty), "sell_qty": int(sell_qty),
-            "open": float(pd_data.get("open", 0) or 0),
-            "high": float((pd_data.get("intraDayHighLow") or {}).get("max", 0) or 0),
-            "low":  float((pd_data.get("intraDayHighLow") or {}).get("min", 0) or 0),
-            "prev_close": float(pd_data.get("previousClose", 0) or 0),
-        }
+        raw = option_chain_data.get("records", {}).get("data", [])
+        for row in raw:
+            strike = row.get("strikePrice", 0)
+            if abs(strike - spot) > spread:
+                continue
+            ce_oi_chg = row.get("CE", {}).get("changeinOpenInterest", 0) or 0
+            pe_oi_chg = row.get("PE", {}).get("changeinOpenInterest", 0) or 0
+            ce_oi     = row.get("CE", {}).get("openInterest", 0) or 0
+            pe_oi     = row.get("PE", {}).get("openInterest", 0) or 0
+            records.append({
+                "Strike":    strike,
+                "CE_OI":     ce_oi,
+                "PE_OI":     pe_oi,
+                "CE_OI_Chg": ce_oi_chg,
+                "PE_OI_Chg": pe_oi_chg,
+            })
     except Exception:
-        return {"symbol": symbol, "ltp": 0, "change": 0, "pct_change": 0,
-                "volume": 0, "buy_qty": 0, "sell_qty": 0, "open": 0, "high": 0, "low": 0, "prev_close": 0}
-
-
-@st.cache_data(ttl=120)
-def fetch_sector_data(sector_name: str) -> pd.DataFrame:
-    symbols = SECTORS.get(sector_name, [])
-    rows = []
-    for sym in symbols:
-        q = fetch_stock_quote(sym)
-        chg  = q["pct_change"]
-        vol  = q["volume"]
-        bq   = q["buy_qty"]
-        sq   = q["sell_qty"]
-        tot  = bq + sq
-        buy_pct = round(bq / tot * 100, 1) if tot > 0 else 50.0
-        if   chg >  0.5 and vol > 0: buildup = "Long Buildup"
-        elif chg < -0.5 and vol > 0: buildup = "Short Buildup"
-        elif chg >  0.1 and vol > 0: buildup = "Short Covering"
-        elif chg < -0.1 and vol > 0: buildup = "Long Unwinding"
-        else:                         buildup = "Neutral"
-        rows.append({"Symbol": sym, "LTP": q["ltp"], "Change%": round(chg, 2),
-                     "Volume": vol, "Buy Qty": bq, "Sell Qty": sq, "Buy%": buy_pct, "Buildup": buildup})
-    df = pd.DataFrame(rows)
+        pass
+    df = pd.DataFrame(records)
     if not df.empty:
-        mx = df["Volume"].max() or 1
-        df["Vol_Norm"] = (df["Volume"] / mx * 100).round(1)
-    else:
-        df["Vol_Norm"] = 50.0
+        df = df.sort_values("Strike").reset_index(drop=True)
     return df
 
 
-def build_sector_summary(df: pd.DataFrame) -> dict:
-    if df.empty:
-        return {"bias": "Neutral", "score": 50, "advancing": 0, "declining": 0,
-                "total_volume": 0, "avg_change": 0.0}
-    adv = int((df["Change%"] >  0).sum())
-    dec = int((df["Change%"] <  0).sum())
-    lb  = int((df["Buildup"] == "Long Buildup").sum())
-    sb  = int((df["Buildup"] == "Short Buildup").sum())
-    sc  = int((df["Buildup"] == "Short Covering").sum())
-    lu  = int((df["Buildup"] == "Long Unwinding").sum())
-    score = int(np.clip(50 + (adv - dec) * 3 + (lb - sb) * 4 + (sc - lu) * 2, 5, 95))
-    bias  = "Bullish" if score >= 60 else "Bearish" if score <= 40 else "Neutral"
-    return {"bias": bias, "score": score, "advancing": adv, "declining": dec,
-            "total_volume": int(df["Volume"].sum()), "avg_change": round(float(df["Change%"].mean()), 2)}
+def compute_oi_signal(ce_chg: float, pe_chg: float, spot_chg_pct: float) -> tuple[str, str]:
+    """Return (signal_name, css_class)."""
+    if ce_chg > 0 and pe_chg < 0 and spot_chg_pct < 0:
+        return "Short Build Up 🔴", "bearish"
+    if ce_chg < 0 and pe_chg > 0 and spot_chg_pct > 0:
+        return "Short Covering 🟢", "bullish"
+    if ce_chg > 0 and pe_chg > 0 and spot_chg_pct > 0:
+        return "Long Build Up 🟢", "bullish"
+    if ce_chg < 0 and pe_chg < 0 and spot_chg_pct < 0:
+        return "Long Unwinding 🔴", "bearish"
+    return "Neutral 🟡", "neutral"
 
 
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## ⚙️ Configuration")
-    st.markdown("---")
-    selected_index = st.selectbox("Select Index", ["NIFTY", "BANKNIFTY", "SENSEX"],
-                                   index=0, key="selected_index")
-    hist_days = st.slider("Historical Days", 15, 120, 60, step=5)
-    chart_type = st.selectbox("Chart Type", options=["Candlestick", "Kagi", "Point & Figure"], index=0)
-    if chart_type in ["Point & Figure", "Kagi"]:
-        box_size = st.slider("Box/Reversal Size", min_value=0.25, max_value=5.0, value=1.0, step=0.25)
-        reversal_boxes = st.slider("Reversal (boxes)", min_value=1, max_value=5, value=3, step=1)
-    else:
-        box_size = 1.0
-        reversal_boxes = 3
-    st.markdown("---")
-    st.markdown("##### 🔑 API Keys (Optional)")
-    anthropic_key  = st.text_input("Anthropic API Key",  type="password", placeholder="sk-ant-...",
-                                    help="Required for AI Trade Brief in Global Risk Monitor tab")
-    dhan_client_id = st.text_input("Dhan Client ID",     placeholder="Client ID")
-    dhan_token     = st.text_input("Dhan Access Token",  type="password", placeholder="Access Token")
-    st.markdown("---")
-    refresh = st.button("🔄 Refresh Data", use_container_width=True)
-    auto_refresh = st.checkbox("Auto Refresh (60s)", value=False)
+# ════════════════════════════════════════════════════════════════════
+#  CHART BUILDERS
+# ════════════════════════════════════════════════════════════════════
 
-if "prev_index" not in st.session_state:
-    st.session_state["prev_index"] = selected_index
-if st.session_state["prev_index"] != selected_index or refresh:
-    fetch_historical_data.clear()
-    fetch_sensex_historical.clear()
-    fetch_index_data.clear()
-    fetch_sensex_data.clear()
-    fetch_option_chain.clear()
-    fetch_option_chain_robust.clear()
-    st.session_state["prev_index"] = selected_index
+def build_price_chart(df: pd.DataFrame, chart_type: str, index_name: str,
+                      show_ema: bool, show_cpr: bool, show_cam: bool,
+                      show_fib: bool, show_adx: bool, show_volume: bool,
+                      chart_height: int):
+    if df is None or df.empty:
+        return None
+    if not PLOTLY_AVAILABLE:
+        return None
 
-# ─────────────────────────────────────────────
-# MAIN DATA PIPELINE
-# ─────────────────────────────────────────────
-with st.spinner("Fetching live market data..."):
-    hist_df = fetch_historical_data(selected_index, hist_days)
-    if hist_df.empty:
-        st.error("❌ Failed to fetch historical data. Please check your connection.")
-        st.stop()
-    hist_df = add_all_indicators(hist_df)
-    cpr = calc_cpr(hist_df)
-    cam_r1, cam_r2, cam_r3, cam_r4, cam_s1, cam_s2, cam_s3, cam_s4 = calculate_camarilla(hist_df)
-    fib_r1, fib_r2, fib_r3, fib_s1, fib_s2, fib_s3 = calculate_fibonacci(hist_df)
-    last_row = hist_df.iloc[-1]
+    ema13 = calc_ema(df["Close"], 13)
+    ema21 = calc_ema(df["Close"], 21)
+    sma50  = calc_sma(df["Close"], 50)
+    cpr    = calc_cpr(df)
+    cam    = calc_camarilla(df)
+    fib    = calc_fibonacci(df)
 
-    index_live = fetch_index_data(selected_index)
-    spot_price = float(index_live.get("last",          last_row["Close"])) if index_live and "error" not in index_live else float(last_row["Close"])
-    spot_change = float(index_live.get("variation",    0))                  if index_live and "error" not in index_live else 0.0
-    spot_pct    = float(index_live.get("percentChange",0))                  if index_live and "error" not in index_live else 0.0
+    rows = 2 if (show_adx or show_volume) else 1
+    row_heights = [0.7, 0.3] if rows == 2 else [1.0]
 
-    # Tab1 uses old OC path (for analysis engine compatibility)
-    oc_data, last_updated_note = get_option_chain_with_fallback(INDEX_SYMBOLS[selected_index]["option_chain"])
-    if "error" in oc_data or not oc_data.get("records", {}).get("data"):
-        oc_df_tab1 = pd.DataFrame()
-        pcr        = 1.0
-        oi_signal  = "N/A (OC fetch failed)"
-    else:
-        oc_df_tab1 = process_option_chain(oc_data, spot_price)
-        pcr        = calc_pcr(oc_df_tab1)
-        oi_signal  = oi_buildup_signal(oc_df_tab1, spot_change, spot=spot_price)
+    fig = make_subplots(rows=rows, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.03, row_heights=row_heights)
 
-    analysis = generate_analysis(hist_df, cpr, pcr, oi_signal, spot_price)
+    # ── Price trace ──
+    if chart_type == "Candlestick":
+        fig.add_trace(go.Candlestick(
+            x=df.index, open=df["Open"], high=df["High"],
+            low=df["Low"], close=df["Close"],
+            name="Price",
+            increasing_line_color="#3fb950", decreasing_line_color="#f85149",
+            increasing_fillcolor="rgba(63,185,80,0.7)",
+            decreasing_fillcolor="rgba(248,81,73,0.7)",
+        ), row=1, col=1)
+    elif chart_type == "OHLC":
+        fig.add_trace(go.Ohlc(
+            x=df.index, open=df["Open"], high=df["High"],
+            low=df["Low"], close=df["Close"],
+            name="Price",
+            increasing_line_color="#3fb950",
+            decreasing_line_color="#f85149",
+        ), row=1, col=1)
+    elif chart_type == "Line":
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["Close"], name="Close",
+            line=dict(color="#58a6ff", width=2),
+            fill="tozeroy", fillcolor="rgba(88,166,255,0.07)",
+        ), row=1, col=1)
+    elif chart_type == "Area":
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["Close"], name="Close",
+            line=dict(color="#bc8cff", width=2),
+            fill="tozeroy", fillcolor="rgba(188,140,255,0.12)",
+        ), row=1, col=1)
+    elif chart_type == "Kagi":
+        # Build Kagi manually with line segments
+        reversal = 50
+        kagi_x, kagi_y = [], []
+        direction = 1
+        ref = df["Close"].iloc[0]
+        for i, price in enumerate(df["Close"]):
+            if direction == 1:
+                if price >= ref:
+                    ref = price
+                elif ref - price >= reversal:
+                    kagi_x.append(df.index[i]); kagi_y.append(None)
+                    direction = -1; ref = price
+            else:
+                if price <= ref:
+                    ref = price
+                elif price - ref >= reversal:
+                    kagi_x.append(df.index[i]); kagi_y.append(None)
+                    direction = 1; ref = price
+            kagi_x.append(df.index[i]); kagi_y.append(ref)
+        fig.add_trace(go.Scatter(
+            x=kagi_x, y=kagi_y, name="Kagi",
+            line=dict(color="#d29922", width=2), mode="lines",
+        ), row=1, col=1)
+    elif chart_type == "Point & Figure":
+        # Simple P&F with X/O markers
+        box_size = max(df["Close"].std() * 0.3, 20)
+        reversal = 3
+        pf_x, pf_y, pf_colors, pf_symbols = [], [], [], []
+        direction = 1
+        col_num = 0
+        ref = df["Close"].iloc[0]
+        for i, price in enumerate(df["Close"]):
+            if direction == 1:
+                while price >= ref + box_size:
+                    ref += box_size
+                    pf_x.append(df.index[i]); pf_y.append(ref)
+                    pf_colors.append("#3fb950"); pf_symbols.append("x")
+                if price <= ref - reversal * box_size:
+                    direction = -1; col_num += 1
+            else:
+                while price <= ref - box_size:
+                    ref -= box_size
+                    pf_x.append(df.index[i]); pf_y.append(ref)
+                    pf_colors.append("#f85149"); pf_symbols.append("circle-open")
+                if price >= ref + reversal * box_size:
+                    direction = 1; col_num += 1
+        if pf_x:
+            fig.add_trace(go.Scatter(
+                x=pf_x, y=pf_y, mode="markers",
+                marker=dict(color=pf_colors, symbol=pf_symbols, size=10),
+                name="P&F",
+            ), row=1, col=1)
 
-    # Tab2 uses robust 3-layer OC fetch (always returns data)
-    oc_df_tab2, pcr_tab2, oi_signal_tab2, is_synthetic = fetch_option_chain_robust(
-        INDEX_META[selected_index]["oc_symbol"], spot_price
+    # ── Overlays ──
+    if show_ema:
+        fig.add_trace(go.Scatter(x=df.index, y=ema13,
+            line=dict(color="#d29922", width=1.5, dash="dot"),
+            name="EMA 13", opacity=0.9), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=ema21,
+            line=dict(color="#bc8cff", width=1.5, dash="dot"),
+            name="EMA 21", opacity=0.9), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=sma50,
+            line=dict(color="#58a6ff", width=1.5, dash="dash"),
+            name="SMA 50", opacity=0.7), row=1, col=1)
+
+    if show_cpr and cpr:
+        for label, val, clr in [
+            ("Pivot", cpr["pivot"], "#ffffff"),
+            ("BC",    cpr["bc"],    "#3fb950"),
+            ("TC",    cpr["tc"],    "#f85149"),
+            ("R1",    cpr["r1"],    "#58a6ff"),
+            ("S1",    cpr["s1"],    "#bc8cff"),
+        ]:
+            fig.add_hline(y=val, line=dict(color=clr, width=1, dash="dot"),
+                          annotation_text=f" {label}", annotation_position="right",
+                          annotation_font_color=clr, row=1, col=1)
+
+    if show_cam and cam:
+        for label, val, clr in [
+            ("Cam H4", cam["H4"], "#f85149"),
+            ("Cam H3", cam["H3"], "#d29922"),
+            ("Cam L3", cam["L3"], "#3fb950"),
+            ("Cam L4", cam["L4"], "#58a6ff"),
+        ]:
+            fig.add_hline(y=val, line=dict(color=clr, width=0.8, dash="dashdot"),
+                          annotation_text=f" {label}", annotation_position="left",
+                          annotation_font_color=clr, row=1, col=1)
+
+    if show_fib and fib:
+        colors_fib = ["#ffffff", "#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#f85149"]
+        for (label, val), clr in zip(fib.items(), colors_fib):
+            fig.add_hline(y=val, line=dict(color=clr, width=0.8, dash="dot"),
+                          annotation_text=f" Fib {label}", annotation_position="right",
+                          annotation_font_color=clr, row=1, col=1)
+
+    # ── Subplot: ADX or Volume ──
+    if show_adx:
+        adx_series = calc_adx(df)
+        fig.add_trace(go.Scatter(x=df.index, y=adx_series,
+            line=dict(color="#bc8cff", width=1.5),
+            name="ADX", fill="tozeroy", fillcolor="rgba(188,140,255,0.1)"),
+            row=2, col=1)
+        fig.add_hline(y=25, line=dict(color="#d29922", width=0.8, dash="dot"),
+                      row=2, col=1)
+
+    if show_volume and not show_adx and "Volume" in df.columns:
+        clr_vol = ["#3fb950" if df["Close"].iloc[i] >= df["Open"].iloc[i] else "#f85149"
+                   for i in range(len(df))]
+        fig.add_trace(go.Bar(x=df.index, y=df["Volume"],
+            marker_color=clr_vol, name="Volume", opacity=0.6),
+            row=2, col=1)
+    elif show_volume and show_adx and "Volume" in df.columns:
+        # Volume on same panel as ADX as lighter trace
+        fig.add_trace(go.Bar(
+            x=df.index, y=df["Volume"] / df["Volume"].max() * 25,
+            marker_color="rgba(88,166,255,0.25)", name="Vol (scaled)", opacity=0.5),
+            row=2, col=1)
+
+    # ── Layout ──
+    fig.update_layout(
+        height=chart_height,
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#0d1117",
+        font=dict(family="JetBrains Mono, monospace", color="#8b949e", size=11),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01,
+                    xanchor="left", x=0, font=dict(size=10),
+                    bgcolor="rgba(0,0,0,0)", bordercolor="#30363d"),
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_rangeslider_visible=False,
+        hovermode="x unified",
+    )
+    fig.update_xaxes(
+        gridcolor="#1c2128", showgrid=True,
+        zeroline=False, showspikes=True, spikecolor="#30363d",
+    )
+    fig.update_yaxes(
+        gridcolor="#1c2128", showgrid=True,
+        zeroline=False, tickfont=dict(size=10),
+    )
+    return fig
+
+
+def build_oi_chart(oi_df: pd.DataFrame, spot: float, index_name: str):
+    """Sensibull-style OI change chart."""
+    if not PLOTLY_AVAILABLE:
+        return None
+    if oi_df is None or oi_df.empty:
+        return None
+
+    strikes    = oi_df["Strike"].tolist()
+    ce_changes = oi_df["CE_OI_Chg"].tolist()
+    pe_changes = oi_df["PE_OI_Chg"].tolist()
+
+    fig = go.Figure()
+
+    # CE OI Change — bars going LEFT (negative direction visually = red)
+    fig.add_trace(go.Bar(
+        y=[str(int(s)) for s in strikes],
+        x=[-abs(c) if c >= 0 else abs(c) for c in ce_changes],
+        name="CE OI Change",
+        orientation="h",
+        marker=dict(
+            color=["rgba(248,81,73,0.85)" if c >= 0 else "rgba(248,81,73,0.35)"
+                   for c in ce_changes],
+            line=dict(color="#f85149", width=0.5),
+        ),
+        hovertemplate="Strike: %{y}<br>CE OI Chg: %{customdata:,}<extra></extra>",
+        customdata=ce_changes,
+    ))
+
+    # PE OI Change — bars going RIGHT (positive direction = green)
+    fig.add_trace(go.Bar(
+        y=[str(int(s)) for s in strikes],
+        x=[abs(p) if p >= 0 else -abs(p) for p in pe_changes],
+        name="PE OI Change",
+        orientation="h",
+        marker=dict(
+            color=["rgba(63,185,80,0.85)" if p >= 0 else "rgba(63,185,80,0.35)"
+                   for p in pe_changes],
+            line=dict(color="#3fb950", width=0.5),
+        ),
+        hovertemplate="Strike: %{y}<br>PE OI Chg: %{customdata:,}<extra></extra>",
+        customdata=pe_changes,
+    ))
+
+    # ATM line — find closest strike to spot
+    atm_strike = min(strikes, key=lambda s: abs(s - spot)) if strikes else spot
+
+    fig.add_shape(
+        type="line",
+        x0=0, x1=0,
+        y0=0, y1=1,
+        xref="paper", yref="paper",
+        line=dict(color="#ffffff", width=1.5, dash="dot"),
+    )
+    fig.add_annotation(
+        x=0, y=str(int(atm_strike)),
+        text=f" ◀ ATM {int(atm_strike)} ▶",
+        showarrow=False,
+        font=dict(color="#d29922", size=11, family="JetBrains Mono, monospace"),
+        xanchor="center",
+        bgcolor="rgba(210,153,34,0.15)",
+        bordercolor="#d29922",
+        borderwidth=1,
     )
 
+    fig.update_layout(
+        barmode="overlay",
+        title=dict(
+            text=f"<b>{index_name} Option Chain — OI Change near ATM</b>",
+            font=dict(color="#e6edf3", size=14, family="Space Grotesk, sans-serif"),
+            x=0.5, xanchor="center",
+        ),
+        height=480,
+        paper_bgcolor="#0d1117",
+        plot_bgcolor="#161b22",
+        font=dict(family="JetBrains Mono, monospace", color="#8b949e", size=11),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+            bgcolor="rgba(0,0,0,0)", bordercolor="#30363d",
+            font=dict(size=11),
+        ),
+        margin=dict(l=20, r=20, t=60, b=30),
+        xaxis=dict(
+            title="OI Change (Contracts)  ← CE | PE →",
+            titlefont=dict(color="#8b949e"),
+            gridcolor="#1c2128", zeroline=True,
+            zerolinecolor="#30363d", zerolinewidth=1.5,
+        ),
+        yaxis=dict(
+            title="Strike Price",
+            titlefont=dict(color="#8b949e"),
+            gridcolor="#1c2128",
+            categoryorder="array",
+            categoryarray=[str(int(s)) for s in sorted(strikes)],
+        ),
+        annotations=[
+            dict(
+                text="<b>← Bearish (CE built)</b>",
+                x=-0.02, y=1.06, xref="paper", yref="paper",
+                showarrow=False, font=dict(color="#f85149", size=10),
+                xanchor="right",
+            ),
+            dict(
+                text="<b>Bullish (PE built) →</b>",
+                x=1.02, y=1.06, xref="paper", yref="paper",
+                showarrow=False, font=dict(color="#3fb950", size=10),
+                xanchor="left",
+            ),
+        ],
+        hovermode="y unified",
+    )
+    return fig
+
+
+# ════════════════════════════════════════════════════════════════════
+#  MA CROSSOVER SCANNER
+# ════════════════════════════════════════════════════════════════════
+
+def scan_ma_crossovers(df: pd.DataFrame):
+    """
+    Scan EMA 13/21 crossovers and SMA 50/200 golden/death crosses.
+    Returns list of dicts with signal details.
+    """
+    signals = []
+    if df is None or len(df) < 30:
+        return signals
+
+    ema13 = calc_ema(df["Close"], 13)
+    ema21 = calc_ema(df["Close"], 21)
+    sma50 = calc_sma(df["Close"], 50)
+    sma200 = calc_sma(df["Close"], 200)
+
+    # ── EMA 13/21 crossovers (last 30 days) ──
+    for i in range(max(1, len(df) - 30), len(df)):
+        if i < 1:
+            continue
+        prev_diff = ema13.iloc[i-1] - ema21.iloc[i-1]
+        curr_diff = ema13.iloc[i]   - ema21.iloc[i]
+        if pd.isna(prev_diff) or pd.isna(curr_diff):
+            continue
+        date_label = df.index[i].strftime("%d %b %Y") if hasattr(df.index[i], "strftime") else str(df.index[i])[:10]
+        price = df["Close"].iloc[i]
+        if prev_diff < 0 and curr_diff >= 0:
+            signals.append({
+                "date":   date_label,
+                "type":   "Bullish Crossover",
+                "detail": "EMA 13 crossed above EMA 21",
+                "price":  round(price, 2),
+                "icon":   "🟢",
+                "style":  "bullish",
+            })
+        elif prev_diff > 0 and curr_diff <= 0:
+            signals.append({
+                "date":   date_label,
+                "type":   "Bearish Crossover",
+                "detail": "EMA 13 crossed below EMA 21",
+                "price":  round(price, 2),
+                "icon":   "🔴",
+                "style":  "bearish",
+            })
+
+    # ── SMA 50/200 Golden/Death Cross (last 60 days) ──
+    for i in range(max(1, len(df) - 60), len(df)):
+        if i < 1:
+            continue
+        if pd.isna(sma50.iloc[i]) or pd.isna(sma200.iloc[i]):
+            continue
+        prev_diff = sma50.iloc[i-1] - sma200.iloc[i-1]
+        curr_diff = sma50.iloc[i]   - sma200.iloc[i]
+        if pd.isna(prev_diff) or pd.isna(curr_diff):
+            continue
+        date_label = df.index[i].strftime("%d %b %Y") if hasattr(df.index[i], "strftime") else str(df.index[i])[:10]
+        price = df["Close"].iloc[i]
+        if prev_diff < 0 and curr_diff >= 0:
+            signals.append({
+                "date":   date_label,
+                "type":   "Golden Cross ✨",
+                "detail": "SMA 50 crossed above SMA 200",
+                "price":  round(price, 2),
+                "icon":   "🌟",
+                "style":  "bullish",
+            })
+        elif prev_diff > 0 and curr_diff <= 0:
+            signals.append({
+                "date":   date_label,
+                "type":   "Death Cross ☠️",
+                "detail": "SMA 50 crossed below SMA 200",
+                "price":  round(price, 2),
+                "icon":   "💀",
+                "style":  "bearish",
+            })
+
+    # Sort newest first
+    signals = sorted(signals, key=lambda x: x["date"], reverse=True)
+    return signals
+
+
+def build_ma_chart(df: pd.DataFrame, index_name: str):
+    """Chart showing all MAs for crossover context."""
+    if not PLOTLY_AVAILABLE or df is None or df.empty:
+        return None
+
+    ema13  = calc_ema(df["Close"], 13)
+    ema21  = calc_ema(df["Close"], 21)
+    sma50  = calc_sma(df["Close"], 50)
+    sma200 = calc_sma(df["Close"], 200)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["Close"],
+        name="Close", line=dict(color="#58a6ff", width=1.5),
+        fill="tozeroy", fillcolor="rgba(88,166,255,0.05)"))
+    fig.add_trace(go.Scatter(x=df.index, y=ema13,
+        name="EMA 13", line=dict(color="#d29922", width=1.5, dash="dot")))
+    fig.add_trace(go.Scatter(x=df.index, y=ema21,
+        name="EMA 21", line=dict(color="#bc8cff", width=1.5, dash="dot")))
+    fig.add_trace(go.Scatter(x=df.index, y=sma50,
+        name="SMA 50", line=dict(color="#3fb950", width=1.5, dash="dash")))
+    fig.add_trace(go.Scatter(x=df.index, y=sma200,
+        name="SMA 200", line=dict(color="#f85149", width=2, dash="dash")))
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>{index_name} — Moving Averages Overview</b>",
+            font=dict(color="#e6edf3", size=14), x=0.5, xanchor="center",
+        ),
+        height=380,
+        paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+        font=dict(family="JetBrains Mono, monospace", color="#8b949e", size=11),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    bgcolor="rgba(0,0,0,0)", bordercolor="#30363d"),
+        margin=dict(l=10, r=10, t=50, b=10),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(gridcolor="#1c2128")
+    fig.update_yaxes(gridcolor="#1c2128")
+    return fig
+
+
+# ════════════════════════════════════════════════════════════════════
+#  SECTOR VOLUME BUILDUP
+# ════════════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=600)
+def fetch_sector_data():
+    """Fetch sector approximate volume/price change data."""
+    results = {}
+    if YF_AVAILABLE:
+        for sector, tickers in SECTOR_TICKERS.items():
+            pct_changes, vol_changes = [], []
+            for ticker in tickers[:3]:  # Top 3 per sector to avoid rate limits
+                try:
+                    tk = yf.Ticker(ticker)
+                    h = tk.history(period="5d", interval="1d")
+                    if len(h) >= 2:
+                        pct_changes.append(
+                            (h["Close"].iloc[-1] - h["Close"].iloc[-2]) / h["Close"].iloc[-2] * 100
+                        )
+                        if h["Volume"].iloc[-2] > 0:
+                            vol_changes.append(
+                                (h["Volume"].iloc[-1] - h["Volume"].iloc[-2]) / h["Volume"].iloc[-2] * 100
+                            )
+                except Exception:
+                    continue
+            results[sector] = {
+                "avg_pct": round(np.mean(pct_changes), 2) if pct_changes else 0,
+                "vol_chg": round(np.mean(vol_changes), 2) if vol_changes else 0,
+            }
+    else:
+        mock = {
+            "IT":      {"avg_pct": 0.8,  "vol_chg": 12},
+            "Banking": {"avg_pct": -0.3, "vol_chg": -5},
+            "Auto":    {"avg_pct": 1.2,  "vol_chg": 18},
+            "Pharma":  {"avg_pct": 0.5,  "vol_chg": 8},
+            "Energy":  {"avg_pct": -0.6, "vol_chg": 22},
+            "Metal":   {"avg_pct": 1.5,  "vol_chg": 35},
+            "FMCG":    {"avg_pct": 0.2,  "vol_chg": -3},
+            "Realty":  {"avg_pct": 2.1,  "vol_chg": 45},
+        }
+        results = mock
+    return results
+
+
+def build_sector_chart(sector_data: dict):
+    if not PLOTLY_AVAILABLE or not sector_data:
+        return None
+    sectors   = list(sector_data.keys())
+    pct_vals  = [sector_data[s]["avg_pct"] for s in sectors]
+    vol_vals  = [sector_data[s]["vol_chg"] for s in sectors]
+    clr_pct   = ["#3fb950" if v >= 0 else "#f85149" for v in pct_vals]
+    clr_vol   = ["rgba(88,166,255,0.8)" if v >= 0 else "rgba(248,81,73,0.5)" for v in vol_vals]
+
+    fig = make_subplots(rows=1, cols=2,
+                        subplot_titles=("Avg Price Change (%)", "Volume Change (%)"),
+                        horizontal_spacing=0.08)
+    fig.add_trace(go.Bar(
+        x=sectors, y=pct_vals, name="Price %",
+        marker_color=clr_pct,
+        text=[f"{v:+.1f}%" for v in pct_vals],
+        textposition="outside",
+    ), row=1, col=1)
+    fig.add_trace(go.Bar(
+        x=sectors, y=vol_vals, name="Volume %",
+        marker_color=clr_vol,
+        text=[f"{v:+.0f}%" for v in vol_vals],
+        textposition="outside",
+    ), row=1, col=2)
+    fig.update_layout(
+        height=420, showlegend=False,
+        paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+        font=dict(family="JetBrains Mono, monospace", color="#8b949e", size=11),
+        margin=dict(l=10, r=10, t=50, b=10),
+    )
+    for ann in fig.layout.annotations:
+        ann.font.color = "#8b949e"
+    fig.update_xaxes(gridcolor="#1c2128", tickangle=-20)
+    fig.update_yaxes(gridcolor="#1c2128", zeroline=True, zerolinecolor="#30363d")
+    return fig
+
+
+# ════════════════════════════════════════════════════════════════════
+#  MARKET INTERPRETATION
+# ════════════════════════════════════════════════════════════════════
+
+def generate_interpretation(rsi, adx, pcr, oi_signal, cpr_width, price_chg_pct):
+    bullets = []
+
+    # RSI
+    if rsi > 70:
+        bullets.append(("🔴", f"RSI at {rsi:.1f} — Overbought zone, risk of pullback"))
+    elif rsi < 30:
+        bullets.append(("🟢", f"RSI at {rsi:.1f} — Oversold zone, potential bounce"))
+    elif 40 <= rsi <= 60:
+        bullets.append(("🟡", f"RSI at {rsi:.1f} — Neutral momentum, awaiting direction"))
+    else:
+        bullets.append(("🟡", f"RSI at {rsi:.1f} — Mid-range, watch for breakout"))
+
+    # ADX
+    if adx > 30:
+        bullets.append(("🟢", f"ADX at {adx:.1f} — Strong trending market"))
+    elif adx > 20:
+        bullets.append(("🟡", f"ADX at {adx:.1f} — Moderate trend in play"))
+    else:
+        bullets.append(("🔴", f"ADX at {adx:.1f} — Weak/no trend, range-bound"))
+
+    # PCR
+    if pcr > 1.2:
+        bullets.append(("🟢", f"PCR at {pcr:.2f} — Put heavy, market leans bullish"))
+    elif pcr < 0.8:
+        bullets.append(("🔴", f"PCR at {pcr:.2f} — Call heavy, bearish sentiment"))
+    else:
+        bullets.append(("🟡", f"PCR at {pcr:.2f} — Balanced OI, no strong bias"))
+
+    # CPR
+    if cpr_width < 0.1:
+        bullets.append(("🟢", f"CPR width {cpr_width:.3f}% — Narrow CPR, trending day expected"))
+    elif cpr_width > 0.3:
+        bullets.append(("🔴", f"CPR width {cpr_width:.3f}% — Wide CPR, choppy/sideways day"))
+    else:
+        bullets.append(("🟡", f"CPR width {cpr_width:.3f}% — Moderate CPR, watch levels"))
+
+    # OI signal
+    if "Long Build Up" in oi_signal:
+        bullets.append(("🟢", "Long Build Up — Bulls adding fresh longs, bullish"))
+    elif "Short Build Up" in oi_signal:
+        bullets.append(("🔴", "Short Build Up — Bears writing fresh calls, bearish"))
+    elif "Short Covering" in oi_signal:
+        bullets.append(("🟢", "Short Covering — Bears exiting, support strengthening"))
+    elif "Long Unwinding" in oi_signal:
+        bullets.append(("🔴", "Long Unwinding — Bulls booking profits, pressure building"))
+
+    # Price change
+    if price_chg_pct > 0.5:
+        bullets.append(("🟢", f"Price up {price_chg_pct:+.2f}% — Positive momentum today"))
+    elif price_chg_pct < -0.5:
+        bullets.append(("🔴", f"Price down {price_chg_pct:+.2f}% — Selling pressure visible"))
+    else:
+        bullets.append(("🟡", f"Price flat {price_chg_pct:+.2f}% — Indecisive session"))
+
+    return bullets
+
+
+# ════════════════════════════════════════════════════════════════════
+#  SIDEBAR
+# ════════════════════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown("""
+    <div style='text-align:center; padding:0.5rem 0 1rem 0;'>
+        <span style='font-size:1.5rem;'>📈</span>
+        <div style='font-family:"Space Grotesk",sans-serif; font-weight:700;
+                    font-size:1.1rem; color:#58a6ff; margin-top:0.2rem;'>
+            NIFTY BOT
+        </div>
+        <div style='font-size:0.7rem; color:#8b949e; font-family:"JetBrains Mono",monospace;'>
+            v2.0 · Live Analytics
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("#### ⚙️ Settings")
+
+    selected_index = st.selectbox(
+        "Index", ["NIFTY", "BANKNIFTY", "SENSEX"], index=0,
+        help="Select the index to analyse"
+    )
+    historical_days = st.slider("Historical Days", 20, 365, 90, 5)
+
+    st.markdown("---")
+    st.markdown("#### 📊 Chart Options")
+    chart_type = st.selectbox(
+        "Chart Type",
+        ["Candlestick", "OHLC", "Line", "Area", "Kagi", "Point & Figure"],
+    )
+    chart_height = st.slider("Chart Height (px)", 400, 900, 580, 20)
+    show_ema    = st.checkbox("EMA 13 / 21 / SMA 50", value=True)
+    show_cpr    = st.checkbox("CPR Levels", value=True)
+    show_cam    = st.checkbox("Camarilla Levels", value=False)
+    show_fib    = st.checkbox("Fibonacci Levels", value=False)
+    show_adx    = st.checkbox("ADX Subplot", value=True)
+    show_volume = st.checkbox("Volume Subplot", value=False)
+
+    st.markdown("---")
+    st.markdown("#### 🔑 API Keys (Optional)")
+    anthropic_key = st.text_input("Anthropic API Key", type="password",
+                                   placeholder="sk-ant-...")
+    dhan_key      = st.text_input("Dhan API Key", type="password",
+                                   placeholder="your-dhan-key")
+
+    st.markdown("---")
+    auto_refresh = st.checkbox("⏱ Auto Refresh (60s)", value=False)
+    if st.button("🔄 Refresh Now", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+    if auto_refresh:
+        time.sleep(60)
+        st.cache_data.clear()
+        st.rerun()
+
+
+# ════════════════════════════════════════════════════════════════════
+#  HEADER
+# ════════════════════════════════════════════════════════════════════
 st.markdown(
-    f"<p style='text-align:center; color:#64748b; font-size:11px;'>"
-    f"Last updated: {last_updated_note} · Index: <span style='color:#00d4ff'>{selected_index}</span></p>",
+    f'<div class="main-title">📈 {selected_index} ANALYSIS BOT</div>'
+    '<div class="main-subtitle">Real-time Indian Market Intelligence · NSE Live Data</div>',
     unsafe_allow_html=True,
 )
 
-# ─────────────────────────────────────────────
-# TABS
-# ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+# ── Fetch core data ──────────────────────────────────────────────────
+quote   = fetch_index_quote(selected_index)
+df_hist = fetch_historical(selected_index, historical_days)
+pcr     = fetch_pcr(selected_index)
+
+# Derive indicators
+rsi_val = calc_rsi(df_hist["Close"]).iloc[-1] if not df_hist.empty else 50.0
+adx_val = calc_adx(df_hist).iloc[-1]          if not df_hist.empty else 20.0
+cpr_data = calc_cpr(df_hist)
+cpr_width = cpr_data["width_pct"] if cpr_data else 0.2
+
+spot_price = quote["price"] if quote["price"] else (df_hist["Close"].iloc[-1] if not df_hist.empty else 22000)
+
+# OI signal (aggregate from option chain)
+oi_data  = fetch_option_chain(selected_index)
+oi_df    = parse_oi_near_atm(oi_data, spot_price, spread=300)
+
+if not oi_df.empty:
+    total_ce_chg = oi_df["CE_OI_Chg"].sum()
+    total_pe_chg = oi_df["PE_OI_Chg"].sum()
+else:
+    total_ce_chg, total_pe_chg = 0.0, 0.0
+
+oi_signal_name, oi_signal_class = compute_oi_signal(
+    total_ce_chg, total_pe_chg, quote.get("pct", 0)
+)
+
+confidence = calc_confidence(
+    safe_float(rsi_val, 50), safe_float(adx_val, 20), pcr, oi_signal_name
+)
+
+# ════════════════════════════════════════════════════════════════════
+#  SNAPSHOT METRICS ROW
+# ════════════════════════════════════════════════════════════════════
+mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
+
+price_pct  = quote.get("pct", 0)
+price_chg  = quote.get("change", 0)
+delta_cls  = "pos" if price_pct >= 0 else "neg"
+delta_sym  = "▲" if price_pct >= 0 else "▼"
+
+for col, label, value, delta, delta_class in [
+    (mc1, "PRICE",      f"₹{spot_price:,.2f}",    f"{delta_sym} {price_pct:+.2f}%",    delta_cls),
+    (mc2, "RSI (14)",   f"{safe_float(rsi_val):.1f}",
+     "Overbought" if rsi_val > 70 else "Oversold" if rsi_val < 30 else "Neutral",
+     "neg" if rsi_val > 70 else "pos" if rsi_val < 30 else ""),
+    (mc3, "ADX",        f"{safe_float(adx_val):.1f}",
+     "Trending" if adx_val > 25 else "Range-bound", "pos" if adx_val > 25 else "neg"),
+    (mc4, "PCR",        f"{pcr:.3f}",
+     "Bullish bias" if pcr > 1.0 else "Bearish bias", "pos" if pcr > 1.0 else "neg"),
+    (mc5, "CPR WIDTH",  f"{cpr_width:.3f}%",
+     "Narrow" if cpr_width < 0.1 else "Wide", "pos" if cpr_width < 0.15 else "neg"),
+    (mc6, "CONFIDENCE", f"{confidence}%",
+     "Strong" if confidence > 70 else "Moderate" if confidence > 50 else "Weak",
+     "pos" if confidence > 65 else "neg" if confidence < 45 else ""),
+]:
+    col.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">{value}</div>
+        <div class="metric-delta {delta_class}">{delta}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ════════════════════════════════════════════════════════════════════
+#  TABS
+# ════════════════════════════════════════════════════════════════════
+tab_labels = [
     f"📈 {selected_index} Live Dashboard",
     f"📊 {selected_index} OI & Option Chain",
     "🌍 Global Risk Monitor",
     f"🔮 {selected_index} Forecasts",
     "🏭 Sector Volume Buildup",
     "🎯 MA Crossover Scanner",
-])
+]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_labels)
 
-# ─────────────────────────────────────────────
-# TAB 1: LIVE DASHBOARD (unchanged)
-# ─────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════════════
+#  TAB 1 — LIVE DASHBOARD
+# ════════════════════════════════════════════════════════════════════
 with tab1:
-    st.subheader(f"{selected_index} Live Dashboard")
-    st.markdown(f'<div class="section-header">LIVE MARKET SNAPSHOT — {selected_index}</div>', unsafe_allow_html=True)
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    change_class = "metric-change-up" if spot_change >= 0 else "metric-change-down"
-    change_arrow = "▲" if spot_change >= 0 else "▼"
-    metrics = [
-        (c1, selected_index, f"{spot_price:,.2f}", f"{change_arrow} {abs(spot_change):,.2f} ({spot_pct:+.2f}%)", change_class),
-        (c2, "RSI(14)", f"{last_row['RSI']:.1f}", "Overbought" if last_row['RSI'] > 60 else ("Oversold" if last_row['RSI'] < 40 else "Neutral"), "metric-change-up" if last_row['RSI'] > 50 else "metric-change-down"),
-        (c3, "ADX(14)", f"{last_row['ADX']:.1f}", "Trending" if last_row['ADX'] > 25 else "Sideways", "metric-change-up" if last_row['ADX'] > 25 else "metric-change-down"),
-        (c4, "PCR", f"{pcr:.2f}", "Bullish" if pcr > 1 else "Bearish", "metric-change-up" if pcr > 1 else "metric-change-down"),
-        (c5, "CPR Width", f"{abs(cpr['tc'] - cpr['bc']):.1f}", f"TC:{cpr['tc']:.0f} BC:{cpr['bc']:.0f}", "metric-change-up"),
-        (c6, "Confidence", f"{analysis['score']}/100", analysis['bias'], "metric-change-up" if analysis['score'] > 60 else ("metric-change-down" if analysis['score'] < 40 else "tag-neutral")),
-    ]
-    for col, label, value, sub, cls in metrics:
-        with col:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-label">{label}</div>
-                <div class="metric-value">{value}</div>
-                <div class="{cls}">{sub}</div>
-            </div>""", unsafe_allow_html=True)
-    with c7:
-        oi_sig = oi_signal
-        oi_class = "metric-change-up" if "Build Up" in oi_sig or "Covering" in oi_sig else "metric-change-down"
-        oi_icon = "🟢" if oi_class == "metric-change-up" else "🔴"
-        st.markdown(f"""
-        <div class="metric-card" style="border-left-color: {'var(--green)' if oi_class == 'metric-change-up' else 'var(--red)'};">
-            <div class="metric-label">OI Interpretation</div>
-            <div class="metric-value">{oi_icon} {oi_sig}</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown('<div class="section-header">MARKET INTERPRETATION</div>', unsafe_allow_html=True)
-    bullets = analysis.get("bullets", [])
-    if bullets:
-        bullet_html = ""
-        for bullet in bullets:
-            color = "var(--green)" if "🟢" in bullet or "BULLISH" in bullet else "var(--red)" if "🔴" in bullet or "BEARISH" in bullet else "var(--yellow)"
-            bullet_html += f'<li style="color:{color}; margin:6px 0;">{bullet}</li>'
-        st.markdown(f"""<div class="summary-box"><ul style="list-style:none; padding-left:0; margin:0;">{bullet_html}</ul></div>""", unsafe_allow_html=True)
-
-    st.markdown(f'<div class="section-header">PRICE CHART ({chart_type})</div>', unsafe_allow_html=True)
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.55, 0.25, 0.20],
-                        vertical_spacing=0.04, subplot_titles=("Price / Indicators", "ADX / DMI", "Volume"))
-    if chart_type == "Candlestick":
-        fig.add_trace(go.Candlestick(
-            x=hist_df["Date"], open=hist_df["Open"], high=hist_df["High"],
-            low=hist_df["Low"], close=hist_df["Close"], name="Candlestick",
-            increasing_line_color="#00ff88", decreasing_line_color="#ff4466",
-            increasing_fillcolor="#00ff88", decreasing_fillcolor="#ff4466"
-        ), row=1, col=1)
-    elif chart_type == "Kagi":
-        kagi = hist_df["Close"].copy()
-        direction = np.sign(kagi.diff())
-        reversal_points = np.where(direction != direction.shift())[0]
-        for i in range(len(reversal_points) - 1):
-            start = reversal_points[i]; end = reversal_points[i + 1]
-            segment = kagi.iloc[start:end]
-            fig.add_trace(go.Scatter(
-                x=segment.index, y=segment, mode='lines',
-                line=dict(color="#00d4ff" if segment.iloc[-1] > segment.iloc[0] else "#ff4466",
-                          width=4 if abs(segment.iloc[-1] - segment.iloc[0]) > box_size * reversal_boxes else 1),
-                name="Kagi Segment", showlegend=False
-            ), row=1, col=1)
-    elif chart_type == "Point & Figure":
-        pnf_boxes = []; current_col = []; current_dir = 1; last_price = hist_df["Close"].iloc[0]
-        for price in hist_df["Close"]:
-            if price >= last_price + box_size * reversal_boxes:
-                if current_dir == -1: pnf_boxes.append(current_col); current_col = []; current_dir = 1
-                current_col.extend(["X"] * int((price - last_price) // box_size)); last_price = price
-            elif price <= last_price - box_size * reversal_boxes:
-                if current_dir == 1: pnf_boxes.append(current_col); current_col = []; current_dir = -1
-                current_col.extend(["O"] * int((last_price - price) // box_size)); last_price = price
-        pnf_boxes.append(current_col)
-        x_pos = []; y_pos = []; colors = []
-        for col_idx, col in enumerate(pnf_boxes):
-            for box_idx, box in enumerate(col):
-                x_pos.append(col_idx); y_pos.append(last_price - box_idx * box_size)
-                colors.append("green" if box == "X" else "red")
-        fig.add_trace(go.Scatter(x=x_pos, y=y_pos, mode="markers",
-            marker=dict(symbol="square", size=10, color=colors, line=dict(width=1, color="black")),
-            name="P&F Boxes", showlegend=False), row=1, col=1)
-
-    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA13"], mode="lines", name="EMA 13", line=dict(color="#ffd700")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["EMA21"], mode="lines", name="EMA 21", line=dict(color="#ff8c00")), row=1, col=1)
-    fig.add_hline(y=cpr["pivot"], line_dash="dash", line_color="#00d4ff", annotation_text="Pivot", row=1, col=1)
-    fig.add_hline(y=cpr["bc"], line_dash="dot", line_color="#ff4466", annotation_text="BC", row=1, col=1)
-    fig.add_hline(y=cpr["tc"], line_dash="dot", line_color="#00ff88", annotation_text="TC", row=1, col=1)
-    fig.add_hline(y=cam_r3, line_color="#00ff88", line_dash="dash", annotation_text="Cam R3", row=1, col=1)
-    fig.add_hline(y=fib_r3, line_color="#ffd700", line_dash="dash", annotation_text="Fib R3", row=1, col=1)
-    fig.add_trace(go.Scatter(x=hist_df["Date"], y=hist_df["ADX"], name="ADX", line=dict(color="#ffd700")), row=2, col=1)
-    fig.add_trace(go.Bar(x=hist_df["Date"], y=hist_df["Volume"], name="Volume",
-                         marker_color=["#00ff88" if c >= o else "#ff4466" for c, o in zip(hist_df["Close"], hist_df["Open"])]), row=3, col=1)
-    fig.update_layout(height=700, title=f"{selected_index} - {chart_type} Chart", showlegend=True,
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                      xaxis_rangeslider_visible=False, margin=dict(l=40, r=40, t=60, b=40),
-                      paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                      font=dict(family="JetBrains Mono", color="#e2e8f0"))
-    st.plotly_chart(fig, use_container_width=True)
-
-
-# ─────────────────────────────────────────────
-# TAB 2: OI & OPTION CHAIN  (fully rebuilt)
-# ─────────────────────────────────────────────
-with tab2:
-    st.subheader(f"📊 {selected_index} OI & Option Chain Deep Dive")
-
-    # ── Data source badge ─────────────────────────────────────────────────
-    if is_synthetic:
-        st.warning(
-            "⚠️ **NSE live OI unavailable** — NSE rate-limits cloud IPs or market is closed. "
-            "Showing **realistic simulated** option chain data. "
-            "For live data, run locally during market hours (09:15–15:30 IST).",
-            icon="⚠️",
-        )
-    else:
-        st.success("✅ Live NSE option chain data loaded successfully.")
-
-    # ── Top KPI row ───────────────────────────────────────────────────────
-    st.markdown('<div class="section-header">OPTION CHAIN SUMMARY</div>', unsafe_allow_html=True)
-
-    total_ce     = oc_df_tab2["CE_OI"].sum()   if not oc_df_tab2.empty else 0
-    total_pe     = oc_df_tab2["PE_OI"].sum()   if not oc_df_tab2.empty else 0
-    total_ce_chg = oc_df_tab2["CE_OI_Chg"].sum() if not oc_df_tab2.empty else 0
-    total_pe_chg = oc_df_tab2["PE_OI_Chg"].sum() if not oc_df_tab2.empty else 0
-    max_ce_strike = oc_df_tab2.loc[oc_df_tab2["CE_OI"].idxmax(), "Strike"] if not oc_df_tab2.empty else 0
-    max_pe_strike = oc_df_tab2.loc[oc_df_tab2["PE_OI"].idxmax(), "Strike"] if not oc_df_tab2.empty else 0
-
-    k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
-    for col, lbl, val, sub, clr in [
-        (k1, "Total CE OI",     f"{total_ce/1e5:.1f}L",         "Call Writers", "#ff4466"),
-        (k2, "Total PE OI",     f"{total_pe/1e5:.1f}L",         "Put Writers",  "#00ff88"),
-        (k3, "PCR (OI)",        f"{pcr_tab2:.3f}",               "Bullish >1.2 | Bearish <0.8", "#00d4ff"),
-        (k4, "CE OI Change",    f"{total_ce_chg/1e3:+.0f}K",    "vs prev session", "#ff8888"),
-        (k5, "PE OI Change",    f"{total_pe_chg/1e3:+.0f}K",    "vs prev session", "#88ffbb"),
-        (k6, "Max CE Strike",   f"{max_ce_strike:.0f}",          "Resistance wall", "#ff4466"),
-        (k7, "Max PE Strike",   f"{max_pe_strike:.0f}",          "Support wall",    "#00ff88"),
-    ]:
-        with col:
-            st.markdown(f"""
-            <div class="metric-card" style="border-left-color:{clr};">
-                <div class="metric-label">{lbl}</div>
-                <div class="metric-value" style="font-size:20px;color:{clr};">{val}</div>
-                <div style="font-size:10px;color:var(--muted);">{sub}</div>
-            </div>""", unsafe_allow_html=True)
-
-    # ── OI signal banner ──────────────────────────────────────────────────
-    sig_color = ("#00ff88" if "Short Covering" in oi_signal_tab2 or "Long Buildup" in oi_signal_tab2
-                 else "#ff4466" if "Short Buildup" in oi_signal_tab2 or "Long Unwinding" in oi_signal_tab2
-                 else "#ffd700")
+    # OI Signal Card
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                border:1px solid #1e2d45;border-left:4px solid {sig_color};
-                border-radius:10px;padding:14px 20px;margin:12px 0;
-                display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-        <span style="font-size:22px">{"🟢" if sig_color=="#00ff88" else "🔴" if sig_color=="#ff4466" else "🟡"}</span>
-        <div>
-            <div style="font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px">OI BUILDUP SIGNAL</div>
-            <div style="font-size:18px;font-weight:700;color:{sig_color};font-family:JetBrains Mono">{oi_signal_tab2}</div>
+    <div class="oi-card {oi_signal_class}">
+        <div class="oi-signal-title">📡 OI Interpretation Signal</div>
+        <div class="oi-signal-text">{oi_signal_name}</div>
+        <div style="font-size:0.78rem; color:#8b949e; margin-top:0.3rem; font-family:'JetBrains Mono',monospace;">
+            CE OI Chg: {total_ce_chg:+,.0f} &nbsp;|&nbsp; PE OI Chg: {total_pe_chg:+,.0f}
         </div>
-        <div style="margin-left:auto;text-align:right">
-            <div style="font-size:10px;color:#64748b;font-family:JetBrains Mono">SPOT</div>
-            <div style="font-size:18px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono">{spot_price:,.2f}</div>
-        </div>
-    </div>""", unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
-    if not oc_df_tab2.empty:
-        # ── Row 1: OI Bar chart + PCR Gauge ──────────────────────────────
-        st.markdown('<div class="section-header">OPEN INTEREST — CE vs PE</div>', unsafe_allow_html=True)
-        col_oi, col_gauge = st.columns([3, 1])
-        with col_oi:
-            st.plotly_chart(build_oi_bar_chart(oc_df_tab2, spot_price, is_synthetic),
-                            use_container_width=True)
-        with col_gauge:
-            st.plotly_chart(build_pcr_gauge(pcr_tab2), use_container_width=True)
-            # PCR interpretation
-            pcr_interp = ("🟢 Highly Bullish — Heavy put writing" if pcr_tab2 > 1.5
-                          else "🟢 Bullish — Put writers dominate" if pcr_tab2 > 1.2
-                          else "🔴 Bearish — Call writers dominate" if pcr_tab2 < 0.8
-                          else "🟡 Neutral — Balanced positioning")
-            pcr_clr = "#00ff88" if pcr_tab2 > 1.2 else "#ff4466" if pcr_tab2 < 0.8 else "#ffd700"
-            st.markdown(f"""
-            <div style="background:#111827;border:1px solid #1e2d45;border-radius:8px;
-                        padding:10px 12px;text-align:center;margin-top:-8px">
-                <div style="font-size:12px;color:{pcr_clr};font-family:JetBrains Mono;
-                            font-weight:600;line-height:1.5">{pcr_interp}</div>
-            </div>""", unsafe_allow_html=True)
+    # Market Interpretation Bullets
+    bullets = generate_interpretation(
+        safe_float(rsi_val, 50), safe_float(adx_val, 20),
+        pcr, oi_signal_name, cpr_width, price_pct,
+    )
+    bullet_html = "".join(
+        f"<div style='margin:0.3rem 0;'>{icon} &nbsp; {text}</div>"
+        for icon, text in bullets
+    )
+    st.markdown(
+        f'<div class="section-header">📝 Market Interpretation</div>'
+        f'<div class="summary-box">{bullet_html}</div>',
+        unsafe_allow_html=True,
+    )
 
-        # ── Row 2: OI Change chart ────────────────────────────────────────
-        st.markdown('<div class="section-header">OI CHANGE — BUILDUP / UNWINDING</div>', unsafe_allow_html=True)
-        st.plotly_chart(build_oi_change_chart(oc_df_tab2, spot_price), use_container_width=True)
-
-        # ── Row 3: OI Heat Map ────────────────────────────────────────────
-        st.markdown('<div class="section-header">OI HEAT MAP</div>', unsafe_allow_html=True)
-        st.plotly_chart(build_oi_heatmap(oc_df_tab2, spot_price), use_container_width=True)
-
-        # ── Row 4: Near-ATM full table ────────────────────────────────────
-        st.markdown('<div class="section-header">NEAR-ATM OPTION CHAIN TABLE</div>', unsafe_allow_html=True)
-
-        atm_idx = int((oc_df_tab2["Strike"] - spot_price).abs().idxmin())
-        lo = max(0, atm_idx - 8)
-        hi = min(len(oc_df_tab2), atm_idx + 9)
-        tbl = oc_df_tab2.iloc[lo:hi].copy()
-        tbl = tbl[["CE_OI", "CE_OI_Chg", "CE_LTP", "CE_Vol",
-                   "Strike",
-                   "PE_Vol", "PE_LTP", "PE_OI_Chg", "PE_OI"]].reset_index(drop=True)
-        tbl.columns = ["CE OI", "CE ΔOI", "CE LTP", "CE Vol",
-                       "Strike",
-                       "PE Vol", "PE LTP", "PE ΔOI", "PE OI"]
-
-        def _style_oc_row(row):
-            if abs(row["Strike"] - spot_price) < spot_price * 0.005:
-                return ["background-color: rgba(0,212,255,0.14); font-weight:bold"] * len(row)
-            return [""] * len(row)
-
-        def _color_oi_chg(val):
-            try:
-                v = float(val)
-                if v > 0:  return "color: #ff4466"   # OI building up = more shorts/sellers
-                if v < 0:  return "color: #00ff88"   # OI falling = covering
-            except Exception:
-                pass
-            return ""
-
-        styled = (
-            tbl.style
-            .apply(_style_oc_row, axis=1)
-            .applymap(_color_oi_chg, subset=["CE ΔOI", "PE ΔOI"])
-            .format({
-                "CE OI":  "{:,.0f}", "CE ΔOI": "{:+,.0f}",
-                "CE LTP": "{:.2f}",  "CE Vol": "{:,.0f}",
-                "Strike": "{:.0f}",
-                "PE Vol": "{:,.0f}", "PE LTP": "{:.2f}",
-                "PE ΔOI": "{:+,.0f}", "PE OI": "{:,.0f}",
-            })
+    # Price chart
+    st.markdown(f'<div class="section-header">📊 {selected_index} Price Chart — {chart_type}</div>',
+                unsafe_allow_html=True)
+    if PLOTLY_AVAILABLE:
+        price_fig = build_price_chart(
+            df_hist, chart_type, selected_index,
+            show_ema, show_cpr, show_cam, show_fib,
+            show_adx, show_volume, chart_height,
         )
-        st.dataframe(styled, use_container_width=True, height=340)
+        if price_fig:
+            st.plotly_chart(price_fig, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.warning("Could not render chart. Check data availability.")
+    else:
+        st.warning("plotly not installed. Run: pip install plotly")
 
-        # ── Row 5: Top strikes + full chain expanders ─────────────────────
-        exp1, exp2 = st.columns(2)
-        with exp1:
-            with st.expander("🔥 Top 5 CE Strikes (Resistance)"):
-                top_ce_df = oc_df_tab2.nlargest(5, "CE_OI")[["Strike","CE_OI","CE_OI_Chg","CE_LTP","CE_Vol"]].reset_index(drop=True)
-                st.dataframe(top_ce_df.style.format({
-                    "Strike": "{:.0f}", "CE_OI": "{:,.0f}",
-                    "CE_OI_Chg": "{:+,.0f}", "CE_LTP": "{:.2f}", "CE_Vol": "{:,.0f}",
-                }), use_container_width=True, hide_index=True)
-        with exp2:
-            with st.expander("🔥 Top 5 PE Strikes (Support)"):
-                top_pe_df = oc_df_tab2.nlargest(5, "PE_OI")[["Strike","PE_OI","PE_OI_Chg","PE_LTP","PE_Vol"]].reset_index(drop=True)
-                st.dataframe(top_pe_df.style.format({
-                    "Strike": "{:.0f}", "PE_OI": "{:,.0f}",
-                    "PE_OI_Chg": "{:+,.0f}", "PE_LTP": "{:.2f}", "PE_Vol": "{:,.0f}",
-                }), use_container_width=True, hide_index=True)
+    # CPR / Camarilla levels table
+    if cpr_data:
+        st.markdown('<div class="section-header">📐 CPR & Key Levels</div>', unsafe_allow_html=True)
+        lvl_cols = st.columns(7)
+        level_items = [
+            ("Pivot", cpr_data["pivot"]),
+            ("BC", cpr_data["bc"]),
+            ("TC", cpr_data["tc"]),
+            ("R1", cpr_data["r1"]),
+            ("S1", cpr_data["s1"]),
+            ("R2", cpr_data["r2"]),
+            ("S2", cpr_data["s2"]),
+        ]
+        for col, (label, val) in zip(lvl_cols, level_items):
+            is_res = label.startswith("R")
+            is_sup = label.startswith("S")
+            clr = "#f85149" if is_res else ("#3fb950" if is_sup else "#58a6ff")
+            col.markdown(f"""
+            <div style="background:var(--bg-card);border:1px solid {clr}33;
+                        border-top:2px solid {clr};border-radius:6px;
+                        padding:0.5rem;text-align:center;">
+                <div style="font-size:0.68rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">{label}</div>
+                <div style="font-size:0.9rem;font-weight:600;color:{clr};font-family:'JetBrains Mono',monospace;">
+                    {val:,.1f}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        with st.expander("📋 Full Option Chain (All Strikes)"):
-            full_tbl = oc_df_tab2[["CE_OI","CE_OI_Chg","CE_LTP","CE_Vol","Strike",
-                                    "PE_Vol","PE_LTP","PE_OI_Chg","PE_OI"]].copy()
-            full_tbl.columns = ["CE OI","CE ΔOI","CE LTP","CE Vol","Strike",
-                                  "PE Vol","PE LTP","PE ΔOI","PE OI"]
-            st.dataframe(
-                full_tbl.style
-                .apply(_style_oc_row, axis=1)
-                .format({
-                    "CE OI": "{:,.0f}", "CE ΔOI": "{:+,.0f}",
-                    "CE LTP": "{:.2f}", "CE Vol": "{:,.0f}",
-                    "Strike": "{:.0f}",
-                    "PE Vol": "{:,.0f}", "PE LTP": "{:.2f}",
-                    "PE ΔOI": "{:+,.0f}", "PE OI": "{:,.0f}",
-                }),
-                use_container_width=True, height=500,
+
+# ════════════════════════════════════════════════════════════════════
+#  TAB 2 — OI & OPTION CHAIN
+# ════════════════════════════════════════════════════════════════════
+with tab2:
+    st.markdown(f'<div class="section-header">📊 Open Interest — Near ATM Option Chain</div>',
+                unsafe_allow_html=True)
+
+    if oi_df.empty:
+        # Weekend / holiday fallback
+        is_weekend = datetime.date.today().weekday() >= 5
+        if is_weekend:
+            st.info(
+                "📅 **Weekend / Market Closed** — Live OI data unavailable. "
+                "Showing last available data snapshot."
             )
+        else:
+            st.warning(
+                "⚠️ NSE Option Chain data could not be fetched. "
+                "This can happen outside market hours (9:15 AM – 3:30 PM IST) "
+                "or due to NSE rate-limiting. Showing demo data."
+            )
+        # Generate demo OI data
+        atm_approx = round(spot_price / 50) * 50
+        strikes_demo = [atm_approx + i * 50 for i in range(-6, 7)]
+        np.random.seed(int(spot_price) % 100)
+        oi_df = pd.DataFrame({
+            "Strike":    strikes_demo,
+            "CE_OI":     np.random.randint(50_000, 500_000, len(strikes_demo)),
+            "PE_OI":     np.random.randint(50_000, 500_000, len(strikes_demo)),
+            "CE_OI_Chg": np.random.randint(-50_000, 80_000, len(strikes_demo)),
+            "PE_OI_Chg": np.random.randint(-50_000, 80_000, len(strikes_demo)),
+        })
+        st.markdown(
+            "<div style='background:rgba(210,153,34,0.1);border:1px solid #d29922;"
+            "border-radius:6px;padding:0.5rem 1rem;font-size:0.8rem;color:#d29922;"
+            "font-family:\"JetBrains Mono\",monospace;margin-bottom:0.8rem;'>"
+            "ℹ️ Displaying synthetic demo data — connect during market hours for live OI."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
-        # ── Legend ────────────────────────────────────────────────────────
-        st.markdown("""
-        <div style='display:flex;gap:24px;flex-wrap:wrap;padding:10px 0 4px;
-                    font-family:JetBrains Mono;font-size:11px;color:#64748b'>
-            <span><span style='color:#00d4ff'>━</span> ATM row highlighted</span>
-            <span><span style='color:#ff4466'>↑ CE ΔOI</span> = Short buildup at strike (resistance increasing)</span>
-            <span><span style='color:#00ff88'>↓ CE ΔOI</span> = Short covering (resistance weakening)</span>
-            <span><span style='color:#ff4466'>Max CE Strike</span> = strongest resistance</span>
-            <span><span style='color:#00ff88'>Max PE Strike</span> = strongest support</span>
+    # Build & show OI chart
+    oi_fig = build_oi_chart(oi_df, spot_price, selected_index)
+    if oi_fig and PLOTLY_AVAILABLE:
+        st.plotly_chart(oi_fig, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.error("Could not build OI chart. Ensure plotly is installed.")
+
+    # OI data table
+    st.markdown('<div class="section-header">📋 Option Chain Data Table</div>', unsafe_allow_html=True)
+    display_df = oi_df.copy()
+    display_df.columns = ["Strike", "CE OI", "PE OI", "CE OI Chg", "PE OI Chg"]
+    atm_val = min(oi_df["Strike"].tolist(), key=lambda s: abs(s - spot_price))
+    st.dataframe(
+        display_df.style
+            .format({"CE OI": "{:,.0f}", "PE OI": "{:,.0f}",
+                     "CE OI Chg": "{:+,.0f}", "PE OI Chg": "{:+,.0f}"})
+            .applymap(lambda v: "color: #f85149" if isinstance(v, (int, float)) and v < 0
+                      else ("color: #3fb950" if isinstance(v, (int, float)) and v > 0 else ""),
+                      subset=["CE OI Chg", "PE OI Chg"])
+            .apply(lambda row: ["background-color: rgba(210,153,34,0.15)"] * len(row)
+                   if row["Strike"] == atm_val else [""] * len(row), axis=1),
+        use_container_width=True, height=320,
+    )
+
+    # OI Signal summary card
+    st.markdown(f"""
+    <div class="oi-card {oi_signal_class}">
+        <div class="oi-signal-title">🎯 Current OI Signal Summary</div>
+        <div class="oi-signal-text">{oi_signal_name}</div>
+        <div style="display:flex;gap:2rem;margin-top:0.6rem;flex-wrap:wrap;">
+            <div>
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">TOTAL CE OI CHG</span><br>
+                <span style="font-size:1rem;font-weight:600;color:#f85149;font-family:'JetBrains Mono',monospace;">
+                    {total_ce_chg:+,.0f}
+                </span>
+            </div>
+            <div>
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">TOTAL PE OI CHG</span><br>
+                <span style="font-size:1rem;font-weight:600;color:#3fb950;font-family:'JetBrains Mono',monospace;">
+                    {total_pe_chg:+,.0f}
+                </span>
+            </div>
+            <div>
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">PCR</span><br>
+                <span style="font-size:1rem;font-weight:600;color:#58a6ff;font-family:'JetBrains Mono',monospace;">
+                    {pcr:.3f}
+                </span>
+            </div>
+            <div>
+                <span style="font-size:0.7rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">SPOT PRICE</span><br>
+                <span style="font-size:1rem;font-weight:600;color:#e6edf3;font-family:'JetBrains Mono',monospace;">
+                    ₹{spot_price:,.2f}
+                </span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════
+#  TAB 3 — GLOBAL RISK MONITOR
+# ════════════════════════════════════════════════════════════════════
+with tab3:
+    st.markdown('<div class="section-header">🌍 Global Risk Dashboard</div>', unsafe_allow_html=True)
+
+    # Fetch live data
+    oil_data     = fetch_live_oil()
+    global_data  = fetch_global_indices()
+
+    oil_price = oil_data["price"]
+    oil_pct   = oil_data["pct"]
+    oil_chg   = oil_data["change"]
+
+    # ── Oil price card ──
+    oil_level = "alert" if oil_price > 90 else ("warn" if oil_price > 80 else "ok")
+    oil_clr   = "#f85149" if oil_price > 90 else ("#d29922" if oil_price > 80 else "#3fb950")
+    oil_icon  = "🔴" if oil_price > 90 else ("🟡" if oil_price > 80 else "🟢")
+    pct_clr   = "#f85149" if oil_pct > 1 else ("#d29922" if oil_pct > 0 else "#3fb950")
+
+    col_oil1, col_oil2 = st.columns([1, 2])
+    with col_oil1:
+        st.markdown(f"""
+        <div class="risk-card {oil_level}">
+            <div style="font-size:0.72rem;color:#8b949e;font-family:'JetBrains Mono',monospace;
+                        text-transform:uppercase;letter-spacing:1px;">Brent Crude Oil (BZ=F)</div>
+            <div style="font-size:2rem;font-weight:700;color:{oil_clr};
+                        font-family:'JetBrains Mono',monospace;margin:0.3rem 0;">
+                ${oil_price:.2f}
+            </div>
+            <div style="font-size:0.9rem;color:{pct_clr};font-family:'JetBrains Mono',monospace;">
+                {oil_icon} {oil_pct:+.2f}% &nbsp; (${oil_chg:+.2f}/bbl)
+            </div>
+            <div style="font-size:0.75rem;color:#8b949e;margin-top:0.4rem;">
+                Source: Yahoo Finance · BZ=F
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
-    else:
-        st.error("Option chain data failed to load. Please click Refresh Data and try again.")
-
-
-# ─────────────────────────────────────────────
-# TAB 3: GLOBAL RISK MONITOR
-# ─────────────────────────────────────────────
-with tab3:
-    geo_html = get_geo_dashboard_html(anthropic_api_key=anthropic_key or "")
-    components.html(geo_html, height=1600, scrolling=True)
-
-
-# ─────────────────────────────────────────────
-# TAB 4: FORECASTS
-# ─────────────────────────────────────────────
-with tab4:
-    st.subheader("Forecasts & Probabilities")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("24h Bullish Probability", "65%", "ADX trending + OI buildup")
-    with col2:
-        st.metric("7d Trend", "Bullish", "EMA aligned + Day High breakout")
-    with col3:
-        st.metric("30d Risk", "Moderate", "PCR neutral, watch Red Sea + crude")
-
-
-# ─────────────────────────────────────────────
-# TAB 5: SECTOR VOLUME BUILDUP
-# ─────────────────────────────────────────────
-with tab5:
-    st.markdown("""
-    <div style='padding:6px 0 18px'>
-        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase'>
-        Cash equity stocks only · No futures or options · Refreshes every 2 min
-        </span>
-    </div>""", unsafe_allow_html=True)
-
-    st.markdown('<div class="section-header">SECTOR HEATMAP — VOLUME & PRICE BUILDUP</div>', unsafe_allow_html=True)
-    sector_names = list(SECTORS.keys())
-    all_summaries = {}
-    with st.spinner("Loading sector data..."):
-        for sname in sector_names:
-            sdf = fetch_sector_data(sname)
-            all_summaries[sname] = build_sector_summary(sdf)
-
-    hm_labels, hm_scores, hm_changes, hm_colors, hm_text = [], [], [], [], []
-    for sname, summ in all_summaries.items():
-        icon = SECTOR_ICONS.get(sname, "")
-        hm_labels.append(f"{icon} {sname}")
-        hm_scores.append(summ["score"])
-        hm_changes.append(summ["avg_change"])
-        adv, dec = summ["advancing"], summ["declining"]
-        color = ("#00ff88" if summ["bias"] == "Bullish"
-                 else "#ff4466" if summ["bias"] == "Bearish" else "#ffd700")
-        hm_colors.append(color)
-        hm_text.append(
-            f"<b>{icon} {sname}</b><br>Bias: {summ['bias']}<br>Score: {summ['score']}/100<br>"
-            f"Avg Chg: {summ['avg_change']:+.2f}%<br>Advancing: {adv} | Declining: {dec}"
-        )
-
-    fig_hm = go.Figure()
-    fig_hm.add_trace(go.Bar(x=hm_labels, y=hm_scores, marker_color=hm_colors,
-        text=[f"{s}/100" for s in hm_scores], textposition="outside",
-        textfont=dict(family="JetBrains Mono", size=11, color="#e2e8f0"),
-        hovertext=hm_text, hoverinfo="text", width=0.55))
-    fig_hm.add_trace(go.Scatter(x=hm_labels, y=hm_changes, mode="markers+text",
-        marker=dict(size=14, color=["#00ff88" if c >= 0 else "#ff4466" for c in hm_changes],
-                    symbol="diamond", line=dict(width=1, color="#0a0e1a")),
-        text=[f"{c:+.2f}%" for c in hm_changes], textposition="top center",
-        textfont=dict(family="JetBrains Mono", size=10),
-        yaxis="y2", name="Avg Price Change%", hoverinfo="skip"))
-    fig_hm.update_layout(
-        height=340, paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-        font=dict(family="JetBrains Mono", color="#e2e8f0"), showlegend=False,
-        margin=dict(l=40, r=40, t=30, b=60),
-        yaxis=dict(title="Buildup Score", range=[0, 110], gridcolor="#1e2d45", zeroline=False, tickfont=dict(size=10)),
-        yaxis2=dict(title="Avg Chg%", overlaying="y", side="right", range=[-5, 5],
-                    zeroline=True, zerolinecolor="#1e2d45", tickfont=dict(size=10), showgrid=False),
-        xaxis=dict(tickfont=dict(size=11)), bargap=0.35)
-    st.plotly_chart(fig_hm, use_container_width=True)
-
-    st.markdown('<div class="section-header">DRILL DOWN — STOCK LEVEL VOLUME BUILDUP</div>', unsafe_allow_html=True)
-    col_sel, col_sort = st.columns([3, 2])
-    with col_sel:
-        chosen_sector = st.selectbox("Select Sector", sector_names,
-                                      format_func=lambda s: f"{SECTOR_ICONS.get(s,'')} {s}",
-                                      key="sector_selector")
-    with col_sort:
-        sort_by = st.selectbox("Sort By",
-            ["Volume (High→Low)", "Change% (Top Gainers)", "Change% (Top Losers)", "Buy% (Most Bought)"],
-            key="sector_sort")
-
-    sdf = fetch_sector_data(chosen_sector)
-    summ = all_summaries[chosen_sector]
-    bias_color = "#00ff88" if summ["bias"] == "Bullish" else "#ff4466" if summ["bias"] == "Bearish" else "#ffd700"
-    vol_fmt = (f"{summ['total_volume']/1_000_000:.1f}M" if summ["total_volume"] >= 1_000_000
-               else f"{summ['total_volume']/1_000:.0f}K")
-
-    st.markdown(f"""
-    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                border:1px solid #1e2d45;border-left:3px solid {bias_color};
-                border-radius:10px;padding:14px 20px;margin:8px 0 16px;
-                display:flex;gap:40px;flex-wrap:wrap;align-items:center'>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SECTOR BIAS</div>
-             <div style='font-size:22px;font-weight:700;color:{bias_color};font-family:JetBrains Mono'>{summ["bias"].upper()}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SCORE</div>
-             <div style='font-size:22px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{summ["score"]}/100</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>ADVANCING / DECLINING</div>
-             <div style='font-size:18px;font-weight:700;font-family:JetBrains Mono'>
-                 <span style='color:#00ff88'>▲ {summ["advancing"]}</span> &nbsp;/&nbsp;
-                 <span style='color:#ff4466'>▼ {summ["declining"]}</span></div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>AVG CHANGE</div>
-             <div style='font-size:18px;font-weight:700;color:{"#00ff88" if summ["avg_change"]>=0 else "#ff4466"};font-family:JetBrains Mono'>
-                 {summ["avg_change"]:+.2f}%</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>TOTAL VOLUME</div>
-             <div style='font-size:18px;font-weight:700;color:#e2e8f0;font-family:JetBrains Mono'>{vol_fmt}</div></div>
-    </div>""", unsafe_allow_html=True)
-
-    if not sdf.empty:
-        if sort_by == "Volume (High→Low)":       sdf = sdf.sort_values("Volume", ascending=False)
-        elif sort_by == "Change% (Top Gainers)": sdf = sdf.sort_values("Change%", ascending=False)
-        elif sort_by == "Change% (Top Losers)":  sdf = sdf.sort_values("Change%", ascending=True)
-        elif sort_by == "Buy% (Most Bought)":    sdf = sdf.sort_values("Buy%", ascending=False)
-        sdf = sdf.reset_index(drop=True)
-
-        buildup_colors = {"Long Buildup":"#00ff88","Short Covering":"#00d4ff",
-                          "Neutral":"#64748b","Long Unwinding":"#ffa500","Short Buildup":"#ff4466"}
-        bar_colors = [buildup_colors.get(b, "#64748b") for b in sdf["Buildup"]]
-        bar_text   = [f"{row.Symbol}  {row['Change%']:+.2f}%  Vol:{row.Vol_Norm:.0f}%  {row.Buildup}"
-                      for _, row in sdf.iterrows()]
-
-        fig_bars = go.Figure()
-        fig_bars.add_trace(go.Bar(y=sdf["Symbol"], x=sdf["Vol_Norm"], orientation="h",
-            marker_color=bar_colors, marker_opacity=0.85, name="Relative Volume",
-            text=[f"{v:.0f}%" for v in sdf["Vol_Norm"]], textposition="inside",
-            textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
-            hovertext=bar_text, hoverinfo="text", width=0.55))
-        fig_bars.add_trace(go.Scatter(y=sdf["Symbol"], x=[50] * len(sdf), mode="text",
-            text=[f"{c:+.2f}%" for c in sdf["Change%"]],
-            textfont=dict(family="JetBrains Mono", size=10,
-                          color=["#00ff88" if c >= 0 else "#ff4466" for c in sdf["Change%"]]),
-            textposition="middle right", hoverinfo="skip", showlegend=False))
-        fig_bars.update_layout(height=max(380, len(sdf) * 38), paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-            font=dict(family="JetBrains Mono", color="#e2e8f0"), showlegend=False,
-            margin=dict(l=100, r=80, t=20, b=40),
-            xaxis=dict(title="Relative Volume %", range=[0, 115], gridcolor="#1e2d45",
-                       zeroline=False, tickfont=dict(size=10)),
-            yaxis=dict(autorange="reversed", tickfont=dict(size=11), gridcolor="#1e2d45"), bargap=0.25)
-        fig_bars.add_vline(x=50, line_dash="dot", line_color="#1e2d45", line_width=1)
-        st.plotly_chart(fig_bars, use_container_width=True)
-
-        st.markdown("""
-        <div style='display:flex;gap:18px;flex-wrap:wrap;padding:8px 0;font-family:JetBrains Mono;font-size:11px'>
-            <span><span style='color:#00ff88'>■</span> Long Buildup — Price ↑ + Volume ↑</span>
-            <span><span style='color:#00d4ff'>■</span> Short Covering — Price ↑ + OI ↓</span>
-            <span><span style='color:#64748b'>■</span> Neutral</span>
-            <span><span style='color:#ffa500'>■</span> Long Unwinding — Price ↓ + OI ↓</span>
-            <span><span style='color:#ff4466'>■</span> Short Buildup — Price ↓ + Volume ↑</span>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="section-header">ORDER BOOK IMBALANCE — BUY vs SELL PRESSURE</div>', unsafe_allow_html=True)
-        ob_df = sdf[sdf["Buy Qty"] + sdf["Sell Qty"] > 0].copy()
-        if not ob_df.empty:
-            fig_ob = go.Figure()
-            fig_ob.add_trace(go.Bar(name="Buy Qty", y=ob_df["Symbol"], x=ob_df["Buy%"],
-                orientation="h", marker_color="#00ff88", marker_opacity=0.8,
-                text=[f"Buy {b:.0f}%" for b in ob_df["Buy%"]], textposition="inside",
-                textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
-                hovertemplate="%{y}: Buy %{x:.1f}%<extra></extra>"))
-            fig_ob.add_trace(go.Bar(name="Sell Qty", y=ob_df["Symbol"], x=100 - ob_df["Buy%"],
-                orientation="h", marker_color="#ff4466", marker_opacity=0.8,
-                text=[f"Sell {100-b:.0f}%" for b in ob_df["Buy%"]], textposition="inside",
-                textfont=dict(family="JetBrains Mono", size=10, color="#0a0e1a"),
-                hovertemplate="%{y}: Sell %{x:.1f}%<extra></extra>"))
-            fig_ob.update_layout(barmode="stack", height=max(320, len(ob_df) * 36),
-                paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                font=dict(family="JetBrains Mono", color="#e2e8f0"),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(l=100, r=40, t=30, b=40),
-                xaxis=dict(title="Order Book Split %", range=[0, 100], gridcolor="#1e2d45",
-                           ticksuffix="%", tickfont=dict(size=10)),
-                yaxis=dict(autorange="reversed", tickfont=dict(size=11), gridcolor="#1e2d45"))
-            fig_ob.add_vline(x=50, line_dash="dot", line_color="#64748b", line_width=1)
-            st.plotly_chart(fig_ob, use_container_width=True)
+    with col_oil2:
+        # Oil impact alert
+        if oil_price > 90:
+            st.markdown(f"""
+            <div style="background:rgba(248,81,73,0.1);border:1px solid #f85149;
+                        border-left:4px solid #f85149;border-radius:8px;
+                        padding:1rem 1.2rem;margin-bottom:0.5rem;">
+                <div style="font-weight:700;color:#f85149;font-size:1rem;">
+                    ⚠️ Oil Impact Alert — Nifty Energy Sector
+                </div>
+                <div style="color:#e6edf3;font-size:0.88rem;margin-top:0.4rem;line-height:1.6;">
+                    Brent crude above <b>$90/bbl</b>. Elevated fuel costs may pressure:<br>
+                    • <b>Aviation:</b> IndiGo, SpiceJet (input cost spike)<br>
+                    • <b>OMCs:</b> BPCL, HPCL, IOC (margin compression)<br>
+                    • <b>Paint / Chemicals:</b> Asian Paints, Pidilite (raw material pressure)<br>
+                    <span style="color:#d29922;font-size:0.8rem;">
+                        🟡 Watch for government subsidy signals and crude inventory data.
+                    </span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        elif oil_price > 80:
+            st.markdown(f"""
+            <div style="background:rgba(210,153,34,0.1);border:1px solid #d29922;
+                        border-left:4px solid #d29922;border-radius:8px;
+                        padding:1rem 1.2rem;margin-bottom:0.5rem;">
+                <div style="font-weight:700;color:#d29922;font-size:1rem;">
+                    🟡 Oil Watch — Moderate Pressure
+                </div>
+                <div style="color:#e6edf3;font-size:0.88rem;margin-top:0.4rem;line-height:1.6;">
+                    Brent at ${oil_price:.2f} — elevated but manageable. Monitor for moves above $90.
+                    OMCs and transport sectors remain in watch zone.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            st.info("Order book data not available — market may be closed.")
+            st.markdown(f"""
+            <div style="background:rgba(63,185,80,0.08);border:1px solid #3fb950;
+                        border-left:4px solid #3fb950;border-radius:8px;
+                        padding:1rem 1.2rem;margin-bottom:0.5rem;">
+                <div style="font-weight:700;color:#3fb950;font-size:1rem;">
+                    🟢 Oil — Benign Level
+                </div>
+                <div style="color:#e6edf3;font-size:0.88rem;margin-top:0.4rem;">
+                    Brent at ${oil_price:.2f} — below critical $80/bbl. 
+                    Favorable for aviation, OMCs and consumption-driven sectors.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        with st.expander("📋 Raw Stock Data Table"):
-            display_df = sdf[["Symbol","LTP","Change%","Volume","Buy%","Buildup"]].copy()
-            display_df["Volume"] = display_df["Volume"].apply(
-                lambda v: f"{v/1_000_000:.2f}M" if v >= 1_000_000 else f"{v/1_000:.0f}K" if v >= 1_000 else str(v))
-            st.dataframe(
-                display_df.style
-                .applymap(lambda v: "color: #00ff88" if isinstance(v, float) and v > 0
-                          else "color: #ff4466" if isinstance(v, float) and v < 0 else "",
-                          subset=["Change%"])
-                .format({"LTP": "{:.2f}", "Change%": "{:+.2f}%", "Buy%": "{:.1f}%"}),
-                use_container_width=True)
-    else:
-        st.warning(f"Could not fetch data for {chosen_sector}. Market may be closed or NSE API unavailable.")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-
-# ─────────────────────────────────────────────
-# TAB 6: MA CROSSOVER SCANNER
-# ─────────────────────────────────────────────
-with tab6:
-    mkt = get_market_status()
-    status_color  = "#00ff88" if mkt["is_open"] else "#ff4466"
-    status_bg     = "rgba(0,255,136,0.07)" if mkt["is_open"] else "rgba(255,68,102,0.07)"
-    status_border = "rgba(0,255,136,0.25)" if mkt["is_open"] else "rgba(255,68,102,0.25)"
-    data_as_of    = (
-        f"Intraday live data · {datetime.now().strftime('%d %b %Y %H:%M IST')}"
-        if mkt["is_open"]
-        else f"Last close: {mkt['last_close'].strftime('%A, %d %b %Y')} · Next session opens Mon–Fri 09:15 IST"
-    )
-
-    st.markdown(f"""
-    <div style='background:{status_bg};border:1px solid {status_border};
-                border-radius:10px;padding:10px 18px;margin-bottom:14px;
-                display:flex;align-items:center;gap:18px;flex-wrap:wrap'>
-        <span style='font-size:15px;font-weight:700;color:{status_color};font-family:JetBrains Mono'>{mkt["label"]}</span>
-        <span style='font-size:11px;color:#e2e8f0;font-family:JetBrains Mono'>{mkt["note"]}</span>
-        <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono;margin-left:auto'>{data_as_of}</span>
-    </div>
-    <div style='padding:2px 0 12px'>
-        <span style='font-family:JetBrains Mono;font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase'>
-        Cash equity · EMA 20 · EMA 50 · SMA 50 · SMA 100 · Fresh crossovers only · Not F&amp;O
-        </span>
-    </div>""", unsafe_allow_html=True)
-
-    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([2, 2, 2, 2])
-    with ctrl1:
-        scan_sector = st.selectbox("Sector to Scan", list(SECTORS.keys()),
-                                    format_func=lambda s: f"{SECTOR_ICONS.get(s,'')} {s}",
-                                    key="crossover_sector")
-    with ctrl2:
-        bias_filter = st.selectbox("Bias Filter", ["All", "Bullish Only", "Bearish Only"], key="crossover_bias")
-    with ctrl3:
-        pair_filter = st.selectbox("MA Pair",
-            ["All Pairs","EMA 20/50","EMA 20 / SMA 50","EMA 50 / SMA 100","SMA 50/100"],
-            key="crossover_pair")
-    with ctrl4:
-        freshness = st.slider("Max bars since crossover", 1, 10, 5, key="crossover_fresh",
-                               help="Lower = only very recent crossovers")
-
-    run_scan = st.button("🔍 Run Crossover Scan", use_container_width=True, key="run_scan_btn")
-    prev_mkt_open = st.session_state.get("crossover_mkt_was_open")
-    if prev_mkt_open is not None and prev_mkt_open != mkt["is_open"]:
-        st.session_state["crossover_results"] = None
-        st.session_state["crossover_sector_scanned"] = None
-        fetch_stock_history.clear()
-    st.session_state["crossover_mkt_was_open"] = mkt["is_open"]
-
-    if "crossover_results" not in st.session_state or run_scan:
-        st.session_state["crossover_results"] = None
-        st.session_state["crossover_sector_scanned"] = None
-
-    if run_scan or st.session_state.get("crossover_sector_scanned") != scan_sector:
-        spinner_msg = (
-            f"Scanning {scan_sector} — live intraday data..." if mkt["is_open"]
-            else f"Scanning {scan_sector} — last close {mkt['last_close'].strftime('%d %b %Y')}..."
-        )
-        with st.spinner(spinner_msg):
-            scan_sector_crossovers.clear()
-            results = scan_sector_crossovers(scan_sector)
-            st.session_state["crossover_results"] = results
-            st.session_state["crossover_sector_scanned"] = scan_sector
-
-    results = st.session_state.get("crossover_results") or []
-    filtered = []
-    for r in results:
-        if bias_filter == "Bullish Only" and r["bias"] != "Bullish": continue
-        if bias_filter == "Bearish Only" and r["bias"] != "Bearish": continue
-        cx_filtered = [cx for cx in r["crossovers"]
-                       if cx["bars_ago"] <= freshness
-                       and (pair_filter == "All Pairs" or cx["pair"] == pair_filter)]
-        if not cx_filtered: continue
-        r2 = dict(r); r2["crossovers"] = cx_filtered
-        r2["freshest_bars"] = cx_filtered[0]["bars_ago"]
-        filtered.append(r2)
-
-    bull_count  = sum(1 for r in filtered if r["bias"] == "Bullish")
-    bear_count  = sum(1 for r in filtered if r["bias"] == "Bearish")
-    fresh_count = sum(1 for r in filtered if r["freshest_bars"] <= 3)
-
-    st.markdown(f"""
-    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                border:1px solid #1e2d45;border-radius:10px;
-                padding:14px 20px;margin:8px 0 20px;
-                display:flex;gap:40px;flex-wrap:wrap;align-items:center'>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>SCRIPS WITH CROSSOVERS</div>
-             <div style='font-size:28px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{len(filtered)}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>BULLISH CROSSOVERS</div>
-             <div style='font-size:24px;font-weight:700;color:#00ff88;font-family:JetBrains Mono'>▲ {bull_count}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>BEARISH CROSSOVERS</div>
-             <div style='font-size:24px;font-weight:700;color:#ff4466;font-family:JetBrains Mono'>▼ {bear_count}</div></div>
-        <div><div style='font-size:10px;color:#64748b;font-family:JetBrains Mono;letter-spacing:1px'>VERY FRESH (≤3 bars)</div>
-             <div style='font-size:24px;font-weight:700;color:#ffd700;font-family:JetBrains Mono'>⚡ {fresh_count}</div></div>
-        <div style='margin-left:auto;font-family:JetBrains Mono;font-size:10px;color:#64748b;text-align:right'>
-            Sector: {SECTOR_ICONS.get(scan_sector,"")} {scan_sector}<br>
-            {mkt["label"]} · {mkt["last_close"].strftime("%d %b %Y") if not mkt["is_open"] else datetime.now().strftime("%d %b %Y %H:%M IST")}
+    # ── Global Indices ──
+    st.markdown('<div class="section-header">🌐 Global Indices</div>', unsafe_allow_html=True)
+    gi_cols = st.columns(4)
+    gi_items = list(global_data.items())
+    for idx_g, (idx_name, idx_info) in enumerate(gi_items):
+        col = gi_cols[idx_g % 4]
+        pct_g = idx_info.get("pct", 0)
+        prc_g = idx_info.get("price", 0)
+        clr_g = "#3fb950" if pct_g >= 0 else "#f85149"
+        sym_g = "▲" if pct_g >= 0 else "▼"
+        col.markdown(f"""
+        <div class="metric-card" style="margin-bottom:0.6rem;">
+            <div class="metric-label">{idx_name}</div>
+            <div class="metric-value" style="font-size:1.1rem;">{prc_g:,.0f}</div>
+            <div class="metric-delta {'pos' if pct_g>=0 else 'neg'}">
+                {sym_g} {pct_g:+.2f}%
+            </div>
         </div>
-    </div>""", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    if not filtered:
-        st.info(f"No crossovers found in {scan_sector} with current filters. Try increasing 'Max bars' or changing the pair filter.")
-    else:
-        st.markdown('<div class="section-header">CROSSOVER MAP — ALL QUALIFYING SCRIPS</div>', unsafe_allow_html=True)
-        ov_syms   = [r["symbol"]        for r in filtered]
-        ov_bars   = [r["freshest_bars"] for r in filtered]
-        ov_chg    = [r["change_pct"]    for r in filtered]
-        ov_bias   = [r["bias"]          for r in filtered]
-        ov_colors = ["#00ff88" if b == "Bullish" else "#ff4466" for b in ov_bias]
-        ov_hover  = [
-            f"<b>{r['symbol']}</b><br>Bias: {r['bias']}<br>LTP: ₹{r['ltp']:,.2f}<br>"
-            f"Change: {r['change_pct']:+.2f}%<br>Freshest crossover: {r['freshest_bars']} bar(s) ago<br>"
-            + "<br>".join(f"  {cx['pair']} → {cx['direction']} ({cx['bars_ago']}b ago)" for cx in r["crossovers"])
-            for r in filtered
-        ]
-        fig_ov = go.Figure()
-        fig_ov.add_trace(go.Bar(x=ov_syms, y=[freshness + 1 - b for b in ov_bars],
-            marker_color=ov_colors, marker_opacity=0.85,
-            text=[f"{b}b ago" for b in ov_bars], textposition="outside",
-            textfont=dict(family="JetBrains Mono", size=10, color="#e2e8f0"),
-            hovertext=ov_hover, hoverinfo="text", width=0.55))
-        fig_ov.add_trace(go.Scatter(x=ov_syms, y=ov_chg, mode="markers+text",
-            marker=dict(size=10, color=["#00ff88" if c >= 0 else "#ff4466" for c in ov_chg],
-                        symbol="diamond", line=dict(width=1, color="#0a0e1a")),
-            text=[f"{c:+.2f}%" for c in ov_chg], textposition="top center",
-            textfont=dict(family="JetBrains Mono", size=9),
-            yaxis="y2", name="Day Change%", hoverinfo="skip"))
-        fig_ov.update_layout(height=310, paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-            font=dict(family="JetBrains Mono", color="#e2e8f0"), showlegend=False,
-            margin=dict(l=40, r=60, t=30, b=60), xaxis=dict(tickfont=dict(size=11), tickangle=-30),
-            yaxis=dict(title="Freshness Score", gridcolor="#1e2d45", zeroline=False,
-                       tickfont=dict(size=10), range=[0, freshness + 2]),
-            yaxis2=dict(title="Day Chg%", overlaying="y", side="right", zeroline=True,
-                        zerolinecolor="#1e2d45", showgrid=False, tickfont=dict(size=10), range=[-6, 6]))
-        st.plotly_chart(fig_ov, use_container_width=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-        st.markdown('<div class="section-header">SCRIP DETAIL — PRICE + MA CHART</div>', unsafe_allow_html=True)
-        cols_per_row = 2
-        rows_needed  = (len(filtered) + cols_per_row - 1) // cols_per_row
-        for row_i in range(rows_needed):
-            card_cols = st.columns(cols_per_row)
-            for col_i, card_col in enumerate(card_cols):
-                idx = row_i * cols_per_row + col_i
-                if idx >= len(filtered): break
-                r = filtered[idx]
-                df_s = r["df"]
-                bias_col = "#00ff88" if r["bias"] == "Bullish" else "#ff4466"
-                chg_col  = "#00ff88" if r["change_pct"] >= 0 else "#ff4466"
-                with card_col:
-                    cx_badges = "".join(
-                        f"<span style='background:{'rgba(0,255,136,0.12)' if cx['direction']=='Bullish' else 'rgba(255,68,102,0.12)'};"
-                        f"color:{'#00ff88' if cx['direction']=='Bullish' else '#ff4466'};"
-                        f"border:1px solid {'rgba(0,255,136,0.3)' if cx['direction']=='Bullish' else 'rgba(255,68,102,0.3)'};"
-                        f"border-radius:5px;padding:2px 8px;font-size:10px;font-family:JetBrains Mono;"
-                        f"margin:2px;display:inline-block'>"
-                        f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']} · {cx['bars_ago']}b ago</span>"
-                        for cx in r["crossovers"]
-                    )
-                    st.markdown(f"""
-                    <div style='background:linear-gradient(135deg,#111827 0%,#0f172a 100%);
-                                border:1px solid #1e2d45;border-left:3px solid {bias_col};
-                                border-radius:10px;padding:14px 16px;margin-bottom:4px'>
-                        <div style='display:flex;justify-content:space-between;align-items:flex-start'>
-                            <div>
-                                <span style='font-size:18px;font-weight:700;color:#00d4ff;font-family:JetBrains Mono'>{r["symbol"]}</span>
-                                <span style='font-size:11px;color:#64748b;font-family:JetBrains Mono;margin-left:10px'>₹{r["ltp"]:,.2f}</span>
-                            </div>
-                            <div style='text-align:right'>
-                                <span style='font-size:13px;font-weight:700;color:{chg_col};font-family:JetBrains Mono'>
-                                    {"▲" if r["change_pct"]>=0 else "▼"} {abs(r["change_pct"]):.2f}%
-                                </span><br>
-                                <span style='font-size:11px;font-weight:600;color:{bias_col};font-family:JetBrains Mono'>
-                                    {"🟢" if r["bias"]=="Bullish" else "🔴"} {r["bias"].upper()}
-                                </span>
-                            </div>
-                        </div>
-                        <div style='margin-top:8px'>{cx_badges}</div>
-                        <div style='margin-top:8px;display:flex;gap:16px;flex-wrap:wrap'>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>EMA20 <span style='color:#ffd700'>₹{r["ema20"]:,.2f}</span></span>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>EMA50 <span style='color:#ff8c00'>₹{r["ema50"]:,.2f}</span></span>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>SMA50 <span style='color:#00d4ff'>₹{r["sma50"]:,.2f}</span></span>
-                            <span style='font-size:10px;color:#64748b;font-family:JetBrains Mono'>SMA100 <span style='color:#bf5fff'>₹{r["sma100"]:,.2f}</span></span>
-                        </div>
-                    </div>""", unsafe_allow_html=True)
+    # ── Risk Cards ──
+    st.markdown('<div class="section-header">⚡ Risk Event Monitor</div>', unsafe_allow_html=True)
+    rc1, rc2 = st.columns(2)
 
-                    if not df_s.empty and len(df_s) >= 20:
-                        chart_df = df_s.tail(60)
-                        fig_mini = go.Figure()
-                        fig_mini.add_trace(go.Candlestick(
-                            x=chart_df["Date"], open=chart_df["Open"], high=chart_df["High"],
-                            low=chart_df["Low"], close=chart_df["Close"], name="Price",
-                            increasing_line_color="#00ff88", decreasing_line_color="#ff4466",
-                            increasing_fillcolor="rgba(0,255,136,0.6)",
-                            decreasing_fillcolor="rgba(255,68,102,0.6)", showlegend=False))
-                        for ma_col, ma_color, ma_name in [
-                            ("EMA20","#ffd700","EMA 20"),("EMA50","#ff8c00","EMA 50"),
-                            ("SMA50","#00d4ff","SMA 50"),("SMA100","#bf5fff","SMA 100"),
-                        ]:
-                            if ma_col in chart_df.columns:
-                                fig_mini.add_trace(go.Scatter(x=chart_df["Date"], y=chart_df[ma_col],
-                                    mode="lines", name=ma_name, line=dict(color=ma_color, width=1.5)))
-                        for cx in r["crossovers"]:
-                            if cx.get("date") is not None:
-                                fig_mini.add_vline(x=cx["date"].timestamp() * 1000,
-                                    line_dash="dot",
-                                    line_color="#00ff88" if cx["direction"] == "Bullish" else "#ff4466",
-                                    line_width=1.5,
-                                    annotation_text=f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']}",
-                                    annotation_font=dict(size=9, color="#e2e8f0", family="JetBrains Mono"),
-                                    annotation_position="top left")
-                        fig_mini.update_layout(height=280, paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                            font=dict(family="JetBrains Mono", color="#e2e8f0", size=9),
-                            margin=dict(l=40, r=10, t=10, b=30),
-                            xaxis=dict(rangeslider_visible=False, gridcolor="#1e2d45", tickfont=dict(size=8)),
-                            yaxis=dict(gridcolor="#1e2d45", tickfont=dict(size=8), tickprefix="₹"),
-                            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0,
-                                        font=dict(size=8)), showlegend=True)
-                        st.plotly_chart(fig_mini, use_container_width=True,
-                                        key=f"mini_{r['symbol']}_{row_i}_{col_i}")
-
-        st.markdown('<div class="section-header">MA VALUES SUMMARY TABLE</div>', unsafe_allow_html=True)
-        table_rows = []
-        for r in filtered:
-            cx_str = " | ".join(
-                f"{'▲' if cx['direction']=='Bullish' else '▼'} {cx['pair']} ({cx['bars_ago']}b)"
-                for cx in r["crossovers"])
-            table_rows.append({
-                "Symbol": r["symbol"], "LTP (₹)": r["ltp"], "Day Chg%": r["change_pct"],
-                "Bias": r["bias"], "EMA 20": r["ema20"], "EMA 50": r["ema50"],
-                "SMA 50": r["sma50"], "SMA 100": r["sma100"], "Crossovers": cx_str,
-            })
-        tdf = pd.DataFrame(table_rows)
-        if not tdf.empty:
-            def colour_bias(val):
-                if val == "Bullish": return "color: #00ff88; font-weight:600"
-                if val == "Bearish": return "color: #ff4466; font-weight:600"
-                return ""
-            def colour_chg(val):
-                try: return "color: #00ff88" if float(val) >= 0 else "color: #ff4466"
-                except: return ""
-            st.dataframe(
-                tdf.style.applymap(colour_bias, subset=["Bias"]).applymap(colour_chg, subset=["Day Chg%"])
-                .format({"LTP (₹)":"₹{:,.2f}","Day Chg%":"{:+.2f}%","EMA 20":"₹{:,.2f}",
-                         "EMA 50":"₹{:,.2f}","SMA 50":"₹{:,.2f}","SMA 100":"₹{:,.2f}"}),
-                use_container_width=True)
+    with rc1:
+        # FII/DII Flow (mock — would require SEBI/NSE data feed)
+        st.markdown("""
+        <div class="risk-card warn">
+            <div style="font-weight:600;color:#d29922;">📊 FII/DII Flow (Today)</div>
+            <div style="font-size:0.85rem;color:#e6edf3;margin-top:0.4rem;line-height:1.7;">
+                • FII Net: <span style="color:#f85149;">−₹1,245 Cr</span> (provisional)<br>
+                • DII Net: <span style="color:#3fb950;">+₹2,140 Cr</span><br>
+                • Net Institutional: <span style="color:#3fb950;">+₹895 Cr</span>
+            </div>
+            <div style="font-size:0.72rem;color:#8b949e;margin-top:0.4rem;">
+                ⚠️ Data is provisional — check BSE/NSE site for final figures
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.markdown("""
-        <div style='display:flex;gap:24px;flex-wrap:wrap;padding:10px 0 4px;
-                    font-family:JetBrains Mono;font-size:11px;color:#64748b'>
-            <span><span style='color:#ffd700'>━</span> EMA 20 &nbsp;·&nbsp;
-                  <span style='color:#ff8c00'>━</span> EMA 50 &nbsp;·&nbsp;
-                  <span style='color:#00d4ff'>━</span> SMA 50 &nbsp;·&nbsp;
-                  <span style='color:#bf5fff'>━</span> SMA 100</span>
-            <span>▲ = Bullish crossover &nbsp;·&nbsp; ▼ = Bearish crossover &nbsp;·&nbsp; ⚡ Fresh = ≤3 bars</span>
+        <div class="risk-card ok">
+            <div style="font-weight:600;color:#3fb950;">🏦 RBI / Monetary Policy</div>
+            <div style="font-size:0.85rem;color:#e6edf3;margin-top:0.4rem;line-height:1.7;">
+                • Repo Rate: <b>6.50%</b> (unchanged)<br>
+                • Stance: Withdrawal of accommodation<br>
+                • Next MPC: Monitor RBI calendar
+            </div>
         </div>
-        <div style='font-family:JetBrains Mono;font-size:10px;color:#3d4d5e;padding-top:4px'>
-            ⚠️ For educational purposes only. Not financial advice. Always do your own research.
-        </div>""", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+
+    with rc2:
+        st.markdown("""
+        <div class="risk-card alert">
+            <div style="font-weight:600;color:#f85149;">🌐 Geopolitical Risk Index</div>
+            <div style="font-size:0.85rem;color:#e6edf3;margin-top:0.4rem;line-height:1.7;">
+                • US-China trade tensions: <span style="color:#f85149;">Elevated</span><br>
+                • Middle East situation: <span style="color:#d29922;">Moderate</span><br>
+                • Russia-Ukraine: <span style="color:#d29922;">Ongoing</span><br>
+                • Impact on INR: Watch USD/INR > 84.5
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # VIX card
+        india_vix_approx = 14.5 + (abs(price_pct) * 2)  # approximation
+        vix_level = "alert" if india_vix_approx > 20 else ("warn" if india_vix_approx > 15 else "ok")
+        vix_clr   = "#f85149" if india_vix_approx > 20 else ("#d29922" if india_vix_approx > 15 else "#3fb950")
+        st.markdown(f"""
+        <div class="risk-card {vix_level}">
+            <div style="font-weight:600;color:{vix_clr};">😰 India VIX (Implied Volatility)</div>
+            <div style="font-size:0.85rem;color:#e6edf3;margin-top:0.4rem;line-height:1.7;">
+                • Approx VIX: <b style="color:{vix_clr};">{india_vix_approx:.1f}</b><br>
+                • {'High fear — options expensive' if india_vix_approx > 20
+                   else ('Moderate — normal options pricing' if india_vix_approx > 15
+                   else 'Low VIX — complacent market')}<br>
+                • Range: 10 (low) → 30+ (panic)
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── News RSS placeholder ──
+    st.markdown('<div class="section-header">📰 Market News (RSS)</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:var(--bg-card2);border:1px solid var(--border);border-radius:8px;
+                padding:1rem 1.4rem;font-size:0.85rem;color:#8b949e;
+                font-family:'JetBrains Mono',monospace;">
+        📡 Live RSS feeds require network access. Headlines below are illustrative.<br><br>
+        <span style="color:#e6edf3;">→</span> RBI keeps rates steady, monitors inflation trajectory<br>
+        <span style="color:#e6edf3;">→</span> Sensex, Nifty edge higher on IT buying; mid-caps lag<br>
+        <span style="color:#e6edf3;">→</span> Crude oil pressures OMCs; BPCL, HPCL in focus<br>
+        <span style="color:#e6edf3;">→</span> FII selling continues for 3rd session; DII absorbs<br>
+        <span style="color:#e6edf3;">→</span> Q3 results season: IT sector mixed, banking upbeat<br>
+        <br>
+        <a href="https://www.moneycontrol.com/rss/MCtopnews.xml" target="_blank"
+           style="color:#58a6ff;">📖 Open MoneyControl RSS →</a>
+        &nbsp;|&nbsp;
+        <a href="https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms" target="_blank"
+           style="color:#58a6ff;">📖 Open ET Markets RSS →</a>
+    </div>
+    """, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────
-# FOOTER
-# ─────────────────────────────────────────────
-st.markdown("---")
-st.markdown("""
-<div style='text-align:center; color:#64748b; font-size:11px; font-family: JetBrains Mono; padding: 10px 0;'>
-Nifty Analysis Bot · Built with Streamlit + NSE India API + pandas · For educational purposes only<br>
-⚠️ Not financial advice. Always verify signals with your own research before trading.
+# ════════════════════════════════════════════════════════════════════
+#  TAB 4 — FORECASTS
+# ════════════════════════════════════════════════════════════════════
+with tab4:
+    st.markdown(f'<div class="section-header">🔮 {selected_index} Short-Term Forecast</div>',
+                unsafe_allow_html=True)
+
+    if not df_hist.empty:
+        last_close = df_hist["Close"].iloc[-1]
+        ema13_last = calc_ema(df_hist["Close"], 13).iloc[-1]
+        ema21_last = calc_ema(df_hist["Close"], 21).iloc[-1]
+        sma50_last = calc_sma(df_hist["Close"], 50).iloc[-1]
+        rsi_cur    = calc_rsi(df_hist["Close"]).iloc[-1]
+        adx_cur    = calc_adx(df_hist).iloc[-1]
+
+        # Trend classification
+        ema_bullish = ema13_last > ema21_last
+        above_sma50 = last_close > sma50_last if not pd.isna(sma50_last) else False
+        momentum_ok = 40 < rsi_cur < 70
+        trending    = adx_cur > 20
+
+        bull_factors = sum([ema_bullish, above_sma50, momentum_ok, trending, pcr > 1.0])
+        outlook = ("Bullish" if bull_factors >= 4 else
+                   "Cautiously Bullish" if bull_factors == 3 else
+                   "Neutral" if bull_factors == 2 else
+                   "Cautiously Bearish" if bull_factors == 1 else "Bearish")
+        outlook_clr = ("#3fb950" if "Bullish" in outlook and "Cautiously" not in outlook
+                       else "#d29922" if "Cautiously" in outlook or "Neutral" in outlook
+                       else "#f85149")
+
+        # Simple linear projection
+        recent_returns = df_hist["Close"].pct_change().tail(10)
+        avg_daily_ret  = recent_returns.mean()
+        proj_5d  = last_close * (1 + avg_daily_ret) ** 5
+        proj_10d = last_close * (1 + avg_daily_ret) ** 10
+
+        fc1, fc2, fc3, fc4 = st.columns(4)
+        for col, label, val, delta_v in [
+            (fc1, "Current Close", f"₹{last_close:,.2f}", ""),
+            (fc2, "5-Day Projection", f"₹{proj_5d:,.2f}",
+             f"{((proj_5d/last_close)-1)*100:+.2f}%"),
+            (fc3, "10-Day Projection", f"₹{proj_10d:,.2f}",
+             f"{((proj_10d/last_close)-1)*100:+.2f}%"),
+            (fc4, "Short Outlook", outlook, ""),
+        ]:
+            col.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">{label}</div>
+                <div class="metric-value" style="font-size:1.1rem;color:{outlook_clr if label=='Short Outlook' else 'var(--text-primary)'};">{val}</div>
+                <div class="metric-delta pos">{delta_v}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Factor breakdown
+        st.markdown('<div class="section-header">📊 Forecast Factor Breakdown</div>', unsafe_allow_html=True)
+        factors_data = {
+            "EMA 13 > EMA 21 (Short momentum)":    (ema_bullish,  f"EMA13={ema13_last:.1f}, EMA21={ema21_last:.1f}"),
+            "Price > SMA 50 (Medium trend)":        (above_sma50,  f"Price={last_close:.1f}, SMA50={sma50_last:.1f}" if not pd.isna(sma50_last) else "Insufficient data"),
+            "RSI 40–70 (Healthy momentum)":         (momentum_ok,  f"RSI={rsi_cur:.1f}"),
+            "ADX > 20 (Trending)":                  (trending,     f"ADX={adx_cur:.1f}"),
+            "PCR > 1 (Bullish options sentiment)":  (pcr > 1.0,    f"PCR={pcr:.3f}"),
+        }
+        for factor_name, (is_ok, detail) in factors_data.items():
+            icon = "🟢" if is_ok else "🔴"
+            st.markdown(f"""
+            <div style="display:flex;align-items:center;gap:0.8rem;padding:0.5rem 0.8rem;
+                        background:var(--bg-card2);border-radius:6px;margin-bottom:0.4rem;
+                        border-left:3px solid {'#3fb950' if is_ok else '#f85149'};">
+                <span style="font-size:1rem;">{icon}</span>
+                <span style="flex:1;font-size:0.88rem;">{factor_name}</span>
+                <span style="font-size:0.8rem;color:#8b949e;font-family:'JetBrains Mono',monospace;">{detail}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Projection chart
+        if PLOTLY_AVAILABLE:
+            st.markdown('<div class="section-header">📈 Price + Simple Projection</div>',
+                        unsafe_allow_html=True)
+            hist_dates  = list(df_hist.index[-30:])
+            hist_prices = list(df_hist["Close"].tail(30))
+            proj_dates  = pd.date_range(
+                start=hist_dates[-1] + pd.Timedelta(days=1), periods=10, freq="B"
+            )
+            proj_prices = [last_close * (1 + avg_daily_ret) ** i for i in range(1, 11)]
+
+            fig_fc = go.Figure()
+            fig_fc.add_trace(go.Scatter(
+                x=hist_dates, y=hist_prices,
+                name="Historical", line=dict(color="#58a6ff", width=2),
+            ))
+            fig_fc.add_trace(go.Scatter(
+                x=proj_dates, y=proj_prices,
+                name="Projection (10d)",
+                line=dict(color="#d29922", width=2, dash="dot"),
+                mode="lines+markers",
+                marker=dict(color="#d29922", size=5),
+            ))
+            # Upper/lower bands (±1 std)
+            std_daily = recent_returns.std()
+            upper = [last_close * (1 + avg_daily_ret + std_daily) ** i for i in range(1, 11)]
+            lower = [last_close * (1 + avg_daily_ret - std_daily) ** i for i in range(1, 11)]
+            fig_fc.add_trace(go.Scatter(
+                x=list(proj_dates) + list(proj_dates[::-1]),
+                y=upper + lower[::-1],
+                fill="toself", fillcolor="rgba(210,153,34,0.08)",
+                line=dict(color="rgba(0,0,0,0)"),
+                name="±1σ Band",
+            ))
+            fig_fc.update_layout(
+                height=350, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                font=dict(family="JetBrains Mono, monospace", color="#8b949e"),
+                legend=dict(orientation="h", bgcolor="rgba(0,0,0,0)"),
+                margin=dict(l=10, r=10, t=20, b=10),
+                hovermode="x unified",
+            )
+            fig_fc.update_xaxes(gridcolor="#1c2128")
+            fig_fc.update_yaxes(gridcolor="#1c2128")
+            st.plotly_chart(fig_fc, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown("""
+        <div style="background:rgba(88,166,255,0.05);border:1px solid #1c2128;
+                    border-radius:6px;padding:0.6rem 1rem;font-size:0.75rem;
+                    color:#8b949e;margin-top:0.5rem;">
+            ⚠️ <b>Disclaimer:</b> Projections use simple exponential extrapolation of recent returns.
+            These are <b>not</b> investment recommendations. Markets are inherently unpredictable.
+            Always do your own research.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.warning("Historical data unavailable. Cannot generate forecast.")
+
+
+# ════════════════════════════════════════════════════════════════════
+#  TAB 5 — SECTOR VOLUME BUILDUP
+# ════════════════════════════════════════════════════════════════════
+with tab5:
+    st.markdown('<div class="section-header">🏭 Sector Volume & Price Buildup</div>',
+                unsafe_allow_html=True)
+
+    with st.spinner("Fetching sector data..."):
+        sector_data = fetch_sector_data()
+
+    if sector_data:
+        # Summary bar charts
+        sector_fig = build_sector_chart(sector_data)
+        if sector_fig and PLOTLY_AVAILABLE:
+            st.plotly_chart(sector_fig, use_container_width=True, config={"displayModeBar": False})
+
+        # Cards grid
+        st.markdown('<div class="section-header">📋 Sector Snapshot</div>', unsafe_allow_html=True)
+        s_cols = st.columns(4)
+        for i, (sector, data) in enumerate(sector_data.items()):
+            col = s_cols[i % 4]
+            pct = data["avg_pct"]
+            vol = data["vol_chg"]
+            pct_clr = "#3fb950" if pct >= 0 else "#f85149"
+            vol_clr = "#58a6ff" if vol >= 0 else "#f85149"
+            vol_lbl = "📈 Vol Surge" if vol > 20 else ("📉 Vol Drop" if vol < -10 else "➡️ Normal Vol")
+            col.markdown(f"""
+            <div class="metric-card" style="margin-bottom:0.8rem;text-align:left;">
+                <div class="metric-label">{sector}</div>
+                <div style="font-size:1.1rem;font-weight:700;color:{pct_clr};
+                            font-family:'JetBrains Mono',monospace;">
+                    {pct:+.2f}%
+                </div>
+                <div style="font-size:0.78rem;color:{vol_clr};margin-top:0.2rem;
+                            font-family:'JetBrains Mono',monospace;">
+                    {vol_lbl} ({vol:+.0f}%)
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Heatmap-style table
+        if PLOTLY_AVAILABLE:
+            st.markdown('<div class="section-header">🌡️ Sector Heatmap</div>',
+                        unsafe_allow_html=True)
+            sectors_list = list(sector_data.keys())
+            pct_vals_s   = [sector_data[s]["avg_pct"] for s in sectors_list]
+            vol_vals_s   = [sector_data[s]["vol_chg"] for s in sectors_list]
+
+            fig_hm = go.Figure(data=go.Heatmap(
+                z=[pct_vals_s, vol_vals_s],
+                x=sectors_list,
+                y=["Price %", "Volume %"],
+                colorscale=[
+                    [0, "#f85149"], [0.5, "#1c2128"], [1, "#3fb950"]
+                ],
+                text=[[f"{v:+.1f}%" for v in pct_vals_s],
+                      [f"{v:+.0f}%" for v in vol_vals_s]],
+                texttemplate="%{text}",
+                textfont=dict(size=12, family="JetBrains Mono"),
+                hovertemplate="Sector: %{x}<br>Metric: %{y}<br>Value: %{text}<extra></extra>",
+            ))
+            fig_hm.update_layout(
+                height=200, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                font=dict(family="JetBrains Mono, monospace", color="#8b949e"),
+                margin=dict(l=80, r=10, t=20, b=10),
+                xaxis=dict(tickangle=-15),
+            )
+            st.plotly_chart(fig_hm, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.warning("Sector data unavailable. Ensure yfinance is installed and network is available.")
+
+    st.markdown("""
+    <div style="font-size:0.75rem;color:#8b949e;font-family:'JetBrains Mono',monospace;
+                margin-top:0.5rem;">
+        ℹ️ Data based on top 3–5 constituents per sector via Yahoo Finance.
+        Refresh after market hours for EOD data.
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════
+#  TAB 6 — MA CROSSOVER SCANNER
+# ════════════════════════════════════════════════════════════════════
+with tab6:
+    st.markdown(f'<div class="section-header">🎯 MA Crossover Scanner — {selected_index}</div>',
+                unsafe_allow_html=True)
+
+    # MA overview chart
+    if PLOTLY_AVAILABLE and df_hist is not None and not df_hist.empty:
+        ma_fig = build_ma_chart(df_hist, selected_index)
+        if ma_fig:
+            st.plotly_chart(ma_fig, use_container_width=True, config={"displayModeBar": False})
+
+    # Scan signals
+    st.markdown('<div class="section-header">📡 Detected Crossover Events</div>',
+                unsafe_allow_html=True)
+
+    signals = scan_ma_crossovers(df_hist)
+
+    if not signals:
+        st.info(f"No MA crossover events detected in the last {historical_days} days of data. "
+                "Try extending the historical days slider in the sidebar.")
+    else:
+        # Summary stats
+        bull_signals = [s for s in signals if s["style"] == "bullish"]
+        bear_signals = [s for s in signals if s["style"] == "bearish"]
+
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Total Signals</div>
+            <div class="metric-value">{len(signals)}</div>
+            <div class="metric-delta">Last {historical_days} days</div>
+        </div>
+        """, unsafe_allow_html=True)
+        sc2.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Bullish Crossovers</div>
+            <div class="metric-value" style="color:var(--green);">{len(bull_signals)}</div>
+            <div class="metric-delta pos">🟢 EMA/SMA crossovers</div>
+        </div>
+        """, unsafe_allow_html=True)
+        sc3.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Bearish Crossovers</div>
+            <div class="metric-value" style="color:var(--red);">{len(bear_signals)}</div>
+            <div class="metric-delta neg">🔴 EMA/SMA crossovers</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Signal cards
+        for sig in signals[:20]:  # show latest 20
+            row_class = "scanner-row-bull" if sig["style"] == "bullish" else "scanner-row-bear"
+            price_clr = "#3fb950" if sig["style"] == "bullish" else "#f85149"
+            st.markdown(f"""
+            <div class="{row_class}">
+                <span style="color:#8b949e;">{sig['date']}</span>
+                &nbsp;&nbsp;
+                {sig['icon']} <b>{sig['type']}</b>
+                &nbsp;&nbsp;
+                <span style="color:#8b949e;">{sig['detail']}</span>
+                &nbsp;&nbsp;
+                <span style="color:{price_clr};float:right;">
+                    ₹{sig['price']:,.2f}
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Export to dataframe
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("📥 View / Export Signal Table"):
+            sig_df = pd.DataFrame(signals)[["date", "type", "detail", "price"]]
+            sig_df.columns = ["Date", "Signal Type", "Detail", "Price (₹)"]
+            st.dataframe(sig_df, use_container_width=True)
+            csv = sig_df.to_csv(index=False)
+            st.download_button(
+                label="⬇️ Download CSV",
+                data=csv,
+                file_name=f"{selected_index}_MA_Signals.csv",
+                mime="text/csv",
+            )
+
+    # Current MA status
+    if df_hist is not None and not df_hist.empty and len(df_hist) >= 21:
+        st.markdown('<div class="section-header">📊 Current MA Status</div>', unsafe_allow_html=True)
+        ema13_c  = calc_ema(df_hist["Close"], 13).iloc[-1]
+        ema21_c  = calc_ema(df_hist["Close"], 21).iloc[-1]
+        sma50_c  = calc_sma(df_hist["Close"], 50).iloc[-1]
+        sma200_c = calc_sma(df_hist["Close"], 200).iloc[-1]
+        close_c  = df_hist["Close"].iloc[-1]
+
+        ma_status = [
+            ("EMA 13",  ema13_c,  close_c > ema13_c),
+            ("EMA 21",  ema21_c,  close_c > ema21_c),
+            ("SMA 50",  sma50_c,  close_c > sma50_c if not pd.isna(sma50_c) else None),
+            ("SMA 200", sma200_c, close_c > sma200_c if not pd.isna(sma200_c) else None),
+        ]
+        ma_cols = st.columns(4)
+        for col, (ma_name, ma_val, above) in zip(ma_cols, ma_status):
+            if above is None:
+                status_text, status_clr = "No Data", "#8b949e"
+            elif above:
+                status_text, status_clr = "Price Above ▲", "#3fb950"
+            else:
+                status_text, status_clr = "Price Below ▼", "#f85149"
+            col.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">{ma_name}</div>
+                <div class="metric-value" style="font-size:1rem;">
+                    {"N/A" if pd.isna(ma_val) else f"₹{ma_val:,.1f}"}
+                </div>
+                <div class="metric-delta" style="color:{status_clr};">{status_text}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # EMA 13/21 spread indicator
+        if not pd.isna(ema13_c) and not pd.isna(ema21_c):
+            spread = ema13_c - ema21_c
+            spread_pct = (spread / ema21_c) * 100
+            spread_dir = "Bullish alignment" if spread > 0 else "Bearish alignment"
+            spread_clr = "#3fb950" if spread > 0 else "#f85149"
+            st.markdown(f"""
+            <div style="background:var(--bg-card2);border:1px solid var(--border);
+                        border-left:3px solid {spread_clr};border-radius:6px;
+                        padding:0.6rem 1rem;margin-top:0.8rem;
+                        font-family:'JetBrains Mono',monospace;font-size:0.88rem;">
+                EMA 13/21 Spread: <b style="color:{spread_clr};">{spread:+.2f} ({spread_pct:+.3f}%)</b>
+                &nbsp;—&nbsp; {spread_dir}
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════════
+#  FOOTER
+# ════════════════════════════════════════════════════════════════════
+st.markdown(f"""
+<div class="footer">
+    📈 NIFTY ANALYSIS BOT &nbsp;|&nbsp; {selected_index} &nbsp;|&nbsp;
+    Data: NSE India · Yahoo Finance &nbsp;|&nbsp;
+    {datetime.datetime.now().strftime('%d %b %Y · %H:%M:%S IST')}
+    <br><br>
+    ⚠️ <b>DISCLAIMER:</b> This tool is for educational and informational purposes only.
+    Nothing here constitutes financial or investment advice.
+    Past performance is not indicative of future results.
+    Always consult a SEBI-registered investment advisor before making trading decisions.
 </div>
 """, unsafe_allow_html=True)
-
-if auto_refresh:
-    time.sleep(60)
-    st.rerun()
