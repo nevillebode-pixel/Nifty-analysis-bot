@@ -355,29 +355,39 @@ def fetch_index_quote(index_name: str):
 
 @st.cache_data(ttl=120)
 def fetch_historical(index_name: str, days: int = 60):
-    """Fetch OHLCV history."""
+    """Fetch OHLCV history via yfinance with robust column handling."""
     if YF_AVAILABLE:
         try:
             sym = INDEX_MAP[index_name]["yf_symbol"]
-            tk = yf.Ticker(sym)
-            df = tk.history(period=f"{days+10}d", interval="1d")
-            df = df.tail(days).copy()
+            tk  = yf.Ticker(sym)
+            df  = tk.history(period=f"{days + 10}d", interval="1d")
+            if df.empty:
+                raise ValueError("Empty dataframe from yfinance")
+            df  = df.tail(days).copy()
+            # ── Strip timezone so DatetimeIndex is tz-naive (avoids pd.Timedelta issues) ──
+            if df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
             df.index = pd.to_datetime(df.index)
-            df.columns = [c.capitalize() for c in df.columns]
+            # ── Normalise column names: Title-case each word, keep only OHLCV ──
+            df.columns = [str(c).split()[0].capitalize() for c in df.columns]
+            needed = ["Open", "High", "Low", "Close", "Volume"]
+            df = df[[c for c in needed if c in df.columns]]
+            # Drop rows where Close is NaN
+            df = df.dropna(subset=["Close"])
             return df
         except Exception:
             pass
-    # Synthetic fallback
+    # ── Synthetic fallback with realistic base price ──
     dates = pd.date_range(end=datetime.date.today(), periods=days, freq="B")
-    base = 22000 if index_name == "NIFTY" else (47000 if index_name == "BANKNIFTY" else 73000)
-    np.random.seed(42)
-    closes = base + np.cumsum(np.random.randn(days) * 80)
+    base  = 23400 if index_name == "NIFTY" else (49500 if index_name == "BANKNIFTY" else 77000)
+    rng   = np.random.default_rng(42)
+    closes = base + np.cumsum(rng.normal(0, 80, days))
     df = pd.DataFrame({
-        "Open":   closes - np.random.rand(days) * 40,
-        "High":   closes + np.random.rand(days) * 80,
-        "Low":    closes - np.random.rand(days) * 80,
+        "Open":   closes - rng.uniform(10, 50, days),
+        "High":   closes + rng.uniform(30, 120, days),
+        "Low":    closes - rng.uniform(30, 120, days),
         "Close":  closes,
-        "Volume": np.random.randint(5_000_000, 15_000_000, days),
+        "Volume": rng.integers(5_000_000, 15_000_000, days),
     }, index=dates)
     return df
 
@@ -1818,16 +1828,17 @@ with tab4:
         live_price  = spot_price if spot_price > 0 else df_hist["Close"].iloc[-1]
         hist_close  = df_hist["Close"].iloc[-1]   # EOD close (for indicator base)
 
-        ema13_last  = calc_ema(df_hist["Close"], 13).iloc[-1]
-        ema21_last  = calc_ema(df_hist["Close"], 21).iloc[-1]
-        sma50_last  = calc_sma(df_hist["Close"], 50).iloc[-1]
+        ema13_last  = safe_float(calc_ema(df_hist["Close"], 13).iloc[-1], 0.0)
+        ema21_last  = safe_float(calc_ema(df_hist["Close"], 21).iloc[-1], 0.0)
+        sma50_last_raw = calc_sma(df_hist["Close"], 50).iloc[-1]
+        sma50_last  = safe_float(sma50_last_raw, float("nan"))
         rsi_cur     = safe_float(calc_rsi(df_hist["Close"]).iloc[-1], 50)
         adx_cur_raw = calc_adx(df_hist).iloc[-1]
         adx_cur     = safe_float(adx_cur_raw, 20)
 
-        # Trend classification
-        ema_bullish = bool(ema13_last > ema21_last) if not (pd.isna(ema13_last) or pd.isna(ema21_last)) else False
-        above_sma50 = bool(live_price > sma50_last) if not pd.isna(sma50_last) else False
+        # Trend classification — all values already safe_float'd above
+        ema_bullish = (ema13_last > ema21_last) if (ema13_last > 0 and ema21_last > 0) else False
+        above_sma50 = (live_price > sma50_last) if not (isinstance(sma50_last, float) and np.isnan(sma50_last)) else False
         momentum_ok = 40 < rsi_cur < 70
         trending    = adx_cur > 20
 
@@ -1881,9 +1892,11 @@ with tab4:
         # ── Factor breakdown ──
         st.markdown('<div class="section-header">📊 Forecast Factor Breakdown</div>',
                     unsafe_allow_html=True)
-        sma50_display = f"{sma50_last:.1f}" if not pd.isna(sma50_last) else "N/A"
+        sma50_display = f"{sma50_last:.1f}" if not (isinstance(sma50_last, float) and np.isnan(sma50_last)) else "N/A (< 50 bars)"
+        ema13_display = f"{ema13_last:.1f}" if ema13_last != 0.0 else "N/A"
+        ema21_display = f"{ema21_last:.1f}" if ema21_last != 0.0 else "N/A"
         factors_data = {
-            "EMA 13 > EMA 21 (Short momentum)":    (ema_bullish,  f"EMA13={ema13_last:.1f}, EMA21={ema21_last:.1f}"),
+            "EMA 13 > EMA 21 (Short momentum)":    (ema_bullish,  f"EMA13={ema13_display}, EMA21={ema21_display}"),
             "Price > SMA 50 (Medium trend)":        (above_sma50,  f"Price={live_price:.1f}, SMA50={sma50_display}"),
             "RSI 40–70 (Healthy momentum)":         (momentum_ok,  f"RSI={rsi_cur:.1f}"),
             "ADX > 20 (Trending)":                  (trending,     f"ADX={adx_cur:.1f}"),
@@ -2143,17 +2156,18 @@ with tab6:
     # Current MA status
     if df_hist is not None and not df_hist.empty and len(df_hist) >= 21:
         st.markdown('<div class="section-header">📊 Current MA Status</div>', unsafe_allow_html=True)
-        ema13_c  = calc_ema(df_hist["Close"], 13).iloc[-1]
-        ema21_c  = calc_ema(df_hist["Close"], 21).iloc[-1]
+        ema13_c  = safe_float(calc_ema(df_hist["Close"], 13).iloc[-1], 0.0)
+        ema21_c  = safe_float(calc_ema(df_hist["Close"], 21).iloc[-1], 0.0)
         sma50_c  = calc_sma(df_hist["Close"], 50).iloc[-1]
         sma200_c = calc_sma(df_hist["Close"], 200).iloc[-1]
-        close_c  = df_hist["Close"].iloc[-1]
+        # Use live spot price for above/below comparison
+        ref_price = spot_price if spot_price > 0 else df_hist["Close"].iloc[-1]
 
         ma_status = [
-            ("EMA 13",  ema13_c,  close_c > ema13_c),
-            ("EMA 21",  ema21_c,  close_c > ema21_c),
-            ("SMA 50",  sma50_c,  close_c > sma50_c if not pd.isna(sma50_c) else None),
-            ("SMA 200", sma200_c, close_c > sma200_c if not pd.isna(sma200_c) else None),
+            ("EMA 13",  ema13_c,  (ref_price > ema13_c) if ema13_c > 0 else None),
+            ("EMA 21",  ema21_c,  (ref_price > ema21_c) if ema21_c > 0 else None),
+            ("SMA 50",  sma50_c,  (ref_price > float(sma50_c)) if not pd.isna(sma50_c) else None),
+            ("SMA 200", sma200_c, (ref_price > float(sma200_c)) if not pd.isna(sma200_c) else None),
         ]
         ma_cols = st.columns(4)
         for col, (ma_name, ma_val, above) in zip(ma_cols, ma_status):
@@ -2163,19 +2177,22 @@ with tab6:
                 status_text, status_clr = "Price Above ▲", "#3fb950"
             else:
                 status_text, status_clr = "Price Below ▼", "#f85149"
+            # Safe display value
+            try:
+                val_display = f"₹{float(ma_val):,.1f}" if not pd.isna(ma_val) and float(ma_val) > 0 else "N/A"
+            except Exception:
+                val_display = "N/A"
             col.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">{ma_name}</div>
-                <div class="metric-value" style="font-size:1rem;">
-                    {"N/A" if pd.isna(ma_val) else f"₹{ma_val:,.1f}"}
-                </div>
+                <div class="metric-value" style="font-size:1rem;">{val_display}</div>
                 <div class="metric-delta" style="color:{status_clr};">{status_text}</div>
             </div>
             """, unsafe_allow_html=True)
 
         # EMA 13/21 spread indicator
-        if not pd.isna(ema13_c) and not pd.isna(ema21_c):
-            spread = ema13_c - ema21_c
+        if ema13_c > 0 and ema21_c > 0:
+            spread     = ema13_c - ema21_c
             spread_pct = (spread / ema21_c) * 100
             spread_dir = "Bullish alignment" if spread > 0 else "Bearish alignment"
             spread_clr = "#3fb950" if spread > 0 else "#f85149"
